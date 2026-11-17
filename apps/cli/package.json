@@ -1,0 +1,54 @@
+{
+  "name": "http-render",
+  "version": "0.1.0",
+  "description": "Turn a curl command or URL into one clean, interactive page of the endpoint: what you send and what comes back.",
+  "keywords": [
+    "http",
+    "curl",
+    "api",
+    "documentation",
+    "openapi",
+    "visualizer",
+    "cli"
+  ],
+  "license": "MIT",
+  "author": "InsaneArts",
+  "homepage": "https://github.com/InsaneArts/http-render#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/InsaneArts/http-render.git",
+    "directory": "apps/cli"
+  },
+  "bugs": "https://github.com/InsaneArts/http-render/issues",
+  "type": "module",
+  "bin": {
+    "http-render": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup"
+  },
+  "dependencies": {
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@http-render/core": "workspace:*",
+    "@http-render/renderer": "workspace:*",
+    "tsup": "^8.5.0"
+  }
+}
