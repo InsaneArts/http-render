@@ -77,17 +77,19 @@ const page = render(endpoint, { style: "inspector", mode: "dark" });
 
 ## Website
 
-`apps/web` is the site where anyone can try http-render without installing it. Documents render in the browser. "Send for real" goes through a small relay (`apps/web/api/send.ts`) that only reaches public addresses, checks every redirect, stops after 15 seconds and keeps the first 1 MB.
+`apps/web` is the site where anyone can try http-render without installing it. Documents render in the browser. "Send for real" goes through a small relay (`apps/web/relay.ts`) that only reaches public addresses, checks every redirect, stops after 15 seconds and keeps the first 1 MB.
+
+Deploy it to Cloudflare Workers from the repo root. `wrangler.jsonc` serves the built site as static assets and runs the relay at `/api/send`:
 
 ```sh
-pnpm install
-pnpm --filter @http-render/web build
-node apps/web/dist-server/server.js     # serves the site and the relay on $PORT (8080)
+pnpm install && pnpm build
+npx wrangler deploy
 ```
 
-Or with Docker:
+Or run it anywhere with Node, or with Docker:
 
 ```sh
+node apps/web/dist-server/server.js     # the site and the relay on $PORT (8080)
 docker build -t http-render-site . && docker run -p 8080:8080 http-render-site
 ```
 

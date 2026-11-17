@@ -27,7 +27,7 @@ pnpm web                                            # the website, relay include
 | `packages/core` | Parsing curl, sending requests, reading body shapes, hiding secrets. Produces an `EndpointDoc`. |
 | `packages/renderer` | Turns an `EndpointDoc` into a page. The three styles are `templates/*.html`. |
 | `apps/cli` | The published `http-render` package: the command and the library. |
-| `apps/web` | The website, its relay (`api/send.ts`) and the production server. |
+| `apps/web` | The website and its relay (`relay.ts`), served by `worker.ts` on Cloudflare, `server.ts` on Node or `api/send.ts` on Vercel. |
 
 The styles are plain HTML files with their CSS and script inline. After editing one, run `pnpm gen` to regenerate `packages/renderer/src/templates.ts`, and check the page against varied endpoints: a list response, an empty 204, an HTML body, a large JSON body and a request with no response.
 
