@@ -5,3 +5,5 @@ dist
 out/
 dist-server
 .wrangler
+apps/cli/README.md
+apps/cli/LICENSE

@@ -41,7 +41,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsup"
+    "build": "tsup",
+    "prepack": "node scripts/prepack.mjs"
   },
   "dependencies": {
     "zod": "^4.0.0"
