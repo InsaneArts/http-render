@@ -1,0 +1,20 @@
+{
+  "name": "@http-render/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && tsup",
+    "start": "node dist-server/server.js"
+  },
+  "dependencies": {
+    "undici": "^8.0.0"
+  },
+  "devDependencies": {
+    "@http-render/core": "workspace:*",
+    "@http-render/renderer": "workspace:*",
+    "vite": "^8.0.0",
+    "tsup": "^8.5.0"
+  }
+}
