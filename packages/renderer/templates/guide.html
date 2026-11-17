@@ -1,0 +1,704 @@
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: a sticky mini-map rail (URL keys + a six-stop track with a scroll-linked packet)
+   beside one long, readable page of sections. A collapsible live curl bar sits at the bottom. */
+:root {
+  --canvas: #eef0f3; --grid: #e2e6eb; --paper: #ffffff; --sunken: #f5f7f9;
+  --ink: #12161c; --ink-2: #3a414c; --muted: #66707d; --faint: #a0a8b3; --line: #dfe3e8;
+  --path: #6e56cf; --query: #0b8a83; --header: #d9480f; --body: #2f6fde; --ok: #198754; --err: #d63939; --res: var(--ok);
+  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "DM Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --float: 0 18px 40px -18px rgb(10 14 20 / .28);
+  --ease: cubic-bezier(.22, .8, .24, 1);
+  --spring: cubic-bezier(.34, 1.5, .64, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --canvas: #0d1014; --grid: #161a20; --paper: #151920; --sunken: #11151a;
+    --ink: #e8ebef; --ink-2: #c0c6ce; --muted: #8a929d; --faint: #59616c; --line: #262b33;
+    --path: #9d8cff; --query: #2cc2b5; --header: #ff7a45; --body: #6aa1ff; --ok: #3ccb7f; --err: #ff6b6b;
+    --float: 0 18px 40px -18px rgb(0 0 0 / .6); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --canvas: #0d1014; --grid: #161a20; --paper: #151920; --sunken: #11151a;
+  --ink: #e8ebef; --ink-2: #c0c6ce; --muted: #8a929d; --faint: #59616c; --line: #262b33;
+  --path: #9d8cff; --query: #2cc2b5; --header: #ff7a45; --body: #6aa1ff; --ok: #3ccb7f; --err: #ff6b6b;
+  --float: 0 18px 40px -18px rgb(0 0 0 / .6); color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+body { margin: 0; color: var(--ink); font: 15px/1.55 var(--font-sans); -webkit-font-smoothing: antialiased; background-color: var(--canvas);
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px); background-size: 24px 24px; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--canvas); }
+button, input { font: inherit; color: inherit; letter-spacing: inherit; }
+:focus-visible { outline: 2px solid var(--body); outline-offset: 2px; border-radius: 6px; }
+[hidden] { display: none !important; }
+
+.tile { display: inline-grid; place-items: center; flex-shrink: 0; width: 1.3em; height: 1.3em; border-radius: .32em; color: var(--c); font-style: normal;
+  background: color-mix(in srgb, var(--c) 14%, var(--paper)); border: 1px solid color-mix(in srgb, var(--c) 34%, transparent); box-sizing: border-box; }
+.tile svg { width: 64%; height: 64%; }
+.key { --edge: color-mix(in srgb, var(--c, var(--ink)) 30%, var(--line)); display: inline-flex; align-items: center; gap: .4em; padding: .14em .52em .14em .24em; border: 0; border-radius: .42em;
+  color: var(--c, var(--ink)); white-space: nowrap; background: var(--paper); font-weight: 600; box-shadow: 0 0 0 1px var(--edge), 0 .16em 0 var(--edge); transition: transform .14s ease, box-shadow .14s ease; }
+button.key { cursor: pointer; }
+button.key:hover { transform: translateY(-.06em); box-shadow: 0 0 0 1px var(--edge), 0 .22em 0 var(--edge); }
+button.key:active { transform: translateY(.14em); box-shadow: 0 0 0 1px var(--edge), 0 .02em 0 var(--edge); }
+
+.page { display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 32px; max-width: 1160px; margin: 0 auto;
+  padding: 22px max(22px, env(safe-area-inset-right, 0px)) 120px max(22px, env(safe-area-inset-left, 0px)); }
+
+/* Mini-map rail */
+.rail { position: sticky; top: max(22px, env(safe-area-inset-top, 0px)); align-self: start; display: grid; gap: 22px; }
+.brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 600; letter-spacing: -.01em; }
+.brand-mark { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; width: 15px; height: 15px; }
+.brand-mark i { border-radius: 3px; }
+.mini-url { display: flex; flex-wrap: wrap; gap: 6px 3px; align-items: center; font: 12.5px var(--font-mono); padding: 14px; border-radius: 14px; background: var(--paper); border: 1px solid var(--line); box-shadow: 0 2px 0 var(--line); }
+.mini-url .plain { color: var(--faint); }
+.mini-url .key { font-size: 12.5px; }
+.mini-url .key.lit { animation: lit .6s var(--spring); }
+@keyframes lit { 40% { transform: translateY(-4px) scale(1.08); } }
+.map { position: relative; display: grid; gap: 4px; padding: 6px 0 6px 26px; }
+.map .track { position: absolute; left: 9px; top: 22px; bottom: 22px; width: 2px; border-radius: 2px; background: var(--line); }
+.map .track i { position: absolute; inset: 0 0 auto; height: var(--fill, 0%); border-radius: 2px; background: linear-gradient(var(--body), var(--res)); }
+.packet { position: absolute; left: 3px; top: 0; width: 14px; height: 14px; border-radius: 5px; z-index: 2; will-change: transform;
+  background: conic-gradient(var(--path), var(--query), var(--header), var(--body), var(--path)); box-shadow: 0 0 14px color-mix(in srgb, var(--body) 55%, transparent); }
+.stop { --c: var(--body); position: relative; display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 10px; background: none; outline: 1px solid transparent; outline-offset: -1px; text-align: left; cursor: pointer; color: var(--muted); transition: background-color .2s, color .2s; }
+.stop:hover { background: color-mix(in srgb, var(--c) 7%, transparent); color: var(--ink); }
+.stop .tile { font-size: 18px; filter: grayscale(.9) opacity(.55); transition: filter .3s, transform .4s var(--spring); }
+.stop b { display: block; font-weight: 600; font-size: 14px; }
+.stop small { display: block; font-size: 12px; color: var(--faint); }
+.stop.on { background: color-mix(in srgb, var(--c) 10%, transparent); outline-color: color-mix(in srgb, var(--c) 40%, transparent); color: var(--ink); }
+.stop.on .tile, .stop.seen .tile { filter: none; }
+.stop.on .tile { transform: scale(1.1); }
+.find { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 10px 0 12px; border-radius: 12px; background: var(--paper); border: 1px solid var(--line); box-shadow: 0 2px 0 var(--line); color: var(--muted); font-size: 13.5px; cursor: pointer; }
+.find:hover { color: var(--ink); }
+.find kbd { margin-left: auto; }
+kbd { font: 11px var(--font-mono); padding: 2px 6px; border-radius: 6px; background: var(--sunken); border: 1px solid var(--line); box-shadow: 0 1px 0 var(--line); color: var(--ink-2); }
+
+/* Content */
+main { display: grid; gap: 26px; min-width: 0; }
+.hero { display: grid; gap: 18px; padding: 10px 0 6px; }
+.hero .facts { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; color: var(--muted); font-size: 14px; }
+.hero .facts b { font: 600 14px var(--font-mono); color: var(--ink); }
+.hero h1 { margin: 0; font-size: clamp(28px, 3.4vw, 40px); line-height: 1.12; letter-spacing: -.025em; font-weight: 600; text-wrap: balance; }
+.hero h1 span { color: var(--faint); }
+.anatomy { --k: 19px; display: flex; align-items: flex-start; flex-wrap: wrap; row-gap: 20px; font: var(--k) var(--font-mono); padding: 22px 26px 26px; border-radius: 14px; background: var(--paper); border: 1px solid var(--line); box-shadow: 0 2px 0 var(--line); overflow-x: auto; }
+.anatomy .plain { color: var(--faint); padding: .22em .06em 0; font-weight: 500; }
+.part { display: grid; justify-items: start; margin: 0 .1em; }
+.stem { width: 2px; height: 16px; margin: 7px 0 0 calc(var(--k) * .9); border-radius: 2px; background: linear-gradient(var(--c), color-mix(in srgb, var(--c) 25%, transparent)); transform-origin: top; }
+.part.long .stem { height: 48px; }
+.lbl { width: 0; white-space: nowrap; display: grid; margin-left: calc(var(--k) * .9 - 3.5px); padding-top: 4px; font: 12.5px/1.35 var(--font-sans); color: var(--muted); }
+.lbl::before { content: ""; width: 9px; height: 9px; margin: -9px 0 4px; border-radius: 50%; background: var(--paper); box-shadow: inset 0 0 0 2px var(--c); }
+.lbl b { color: var(--c); font-weight: 600; }
+
+.sec { --c: var(--body); display: grid; gap: 16px; padding: 26px 28px 28px; border-radius: 14px; background: var(--paper); border: 1px solid var(--line); box-shadow: 0 2px 0 var(--line); scroll-margin-top: 24px; }
+.sec-h { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 12px; row-gap: 2px; }
+.sec-h .tile { font-size: 28px; }
+.sec-h h2 { margin: 0; font-size: 21px; letter-spacing: -.02em; font-weight: 600; }
+.sec-h .n { font: 500 12px var(--font-mono); color: var(--faint); }
+.sec-h p { grid-column: 2; margin: 0; color: var(--muted); max-width: 64ch; }
+
+.fill { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.slot { display: grid; gap: 8px; padding: 14px 16px; border-radius: 12px; background: var(--sunken); border: 1px solid var(--line); }
+.slot .k { display: flex; align-items: center; gap: 8px; font: 600 14px var(--font-mono); color: var(--c); }
+.slot .k .tile { font-size: 16px; }
+.slot .k span { margin-left: auto; font: 12px var(--font-sans); color: var(--muted); }
+.slot small { color: var(--muted); font-size: 12.5px; }
+.edit { width: 100%; border: 1px solid var(--line); outline: 0; border-radius: 10px; background: var(--paper); box-shadow: 0 2px 0 var(--line); padding: 7px 10px; font: 13.5px var(--font-mono); letter-spacing: 0; transition: box-shadow .15s; }
+.edit:focus { outline: 2px solid var(--body); outline-offset: 1px; }
+.liveurl { font: 14.5px var(--font-mono); padding: 14px 16px; border-radius: 12px; background: var(--sunken); border: 1px solid var(--line); overflow-wrap: anywhere; letter-spacing: 0; color: var(--ink-2); }
+.liveurl .v { color: var(--c); font-weight: 600; border-radius: 4px; }
+.v.flash { animation: flash .8s var(--ease); }
+@keyframes flash { 0% { background: color-mix(in srgb, var(--c, var(--body)) 35%, transparent); } }
+
+.hcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.hcard { display: grid; gap: 7px; padding: 16px; border-radius: 12px; background: var(--sunken); border: 1px solid var(--line); align-content: start; }
+.hcard .k { display: flex; align-items: center; gap: 8px; font: 600 14px var(--font-mono); color: var(--c); }
+.hcard .k .tile { font-size: 16px; }
+.hcard .val { font: 13px var(--font-mono); color: var(--ink-2); overflow-wrap: anywhere; letter-spacing: 0; }
+.hcard .why { color: var(--muted); font-size: 13px; }
+.lock { display: inline-flex; margin-left: 8px; font: 11.5px var(--font-sans); color: var(--muted); padding: 1px 7px; border-radius: 999px; background: var(--paper); border: 1px solid var(--line); }
+
+.split { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.tree { display: grid; gap: 2px; min-width: 0; }
+.f { display: grid; grid-template-columns: minmax(96px, max-content) minmax(0, 1fr) minmax(100px, 180px); align-items: center; gap: 12px; min-height: 38px; padding: 3px 10px; border-radius: 10px; transition: background-color .15s; }
+.f:hover, .f.hl { background: color-mix(in srgb, var(--c) 10%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 40%, transparent); }
+.f.pulse { animation: pulse 1.6s var(--ease); }
+@keyframes pulse { 0%, 40% { background: color-mix(in srgb, var(--c) 26%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 55%, transparent); } }
+.f .nm { font: 500 13.5px var(--font-mono); white-space: nowrap; }
+.f .nm .opt { margin-left: 7px; font: 11px var(--font-sans); color: var(--faint); }
+.f .ty { font: 12px var(--font-mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.f .ty b { font-weight: 400; color: var(--ink-2); }
+.f .edit { padding: 5px 9px; font-size: 12.5px; }
+.f .static { font: 12.5px var(--font-mono); color: var(--muted); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group { display: grid; gap: 2px; padding: 8px; margin: 2px 0 6px 12px; border-radius: 12px; background: var(--sunken); border: 1px solid var(--line); }
+.group-h { display: flex; align-items: center; gap: 8px; padding: 4px 8px 6px; font: 500 13.5px var(--font-mono); }
+.group-h .pill { font: 11px var(--font-sans); color: var(--muted); padding: 1px 8px; border-radius: 999px; background: var(--paper); border: 1px solid var(--line); }
+.group-h .ty { font: 12px var(--font-mono); color: var(--muted); }
+.item-h { font: 11.5px var(--font-mono); color: var(--faint); padding: 2px 10px; }
+.item-more { margin: 4px 10px 2px; font-size: 12.5px; color: var(--muted); }
+details.group > summary { list-style: none; cursor: pointer; border-radius: 8px; }
+details.group > summary::-webkit-details-marker { display: none; }
+details.group > summary:hover { background: color-mix(in srgb, var(--c) 7%, transparent); }
+details.group:not([open]) { padding-bottom: 2px; }
+.chev { width: 7px; height: 7px; margin: 0 2px 2px 2px; border-right: 1.6px solid var(--muted); border-bottom: 1.6px solid var(--muted); transform: rotate(45deg); transition: transform .2s var(--ease); flex-shrink: 0; }
+details.group:not([open]) > summary .chev { transform: rotate(-45deg); margin-bottom: 0; }
+.raw { margin: 0; max-height: 420px; overflow: auto; padding: 14px 16px; border-radius: 12px; background: var(--sunken); border: 1px solid var(--line); font: 12.5px/1.65 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink-2); }
+.binary { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 12px; background: var(--sunken); border: 1px solid var(--line); font-size: 14px; color: var(--muted); }
+.binary .tile { font-size: 22px; }
+.binary b { display: block; color: var(--ink); font: 500 13.5px var(--font-mono); }
+.json { position: sticky; top: 24px; max-height: calc(100vh - 140px); overflow: auto; font: 12.5px/1.8 var(--font-mono); letter-spacing: 0; border-radius: 12px; background: var(--sunken); border: 1px solid var(--line); padding: 12px 0; }
+.json .jh { padding: 0 16px 8px; font: 12px var(--font-sans); color: var(--muted); }
+.jl { padding: 0 16px; white-space: pre; transition: background-color .15s; }
+.jl.hl { background: color-mix(in srgb, var(--c) 10%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 40%, transparent); }
+.jk { color: var(--ink); } .js { color: var(--ok); } .jn { color: var(--body); } .jb { color: var(--path); } .jz, .jp { color: var(--faint); }
+
+.trip { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 18px; }
+.end { display: grid; justify-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.end .tile { font-size: 44px; }
+.end b { color: var(--ink); font: 600 13px var(--font-mono); }
+.wire { position: relative; height: 64px; }
+.wire::before, .wire::after { content: ""; position: absolute; left: 0; right: 0; height: 2px; border-radius: 2px; }
+.wire::before { top: 20px; background: linear-gradient(90deg, color-mix(in srgb, var(--body) 25%, transparent), var(--body)); }
+.wire::after { bottom: 20px; background: linear-gradient(270deg, color-mix(in srgb, var(--res) 25%, transparent), var(--res)); }
+.wire .p { position: absolute; width: 12px; height: 12px; margin-left: -6px; border-radius: 4px; opacity: 0; }
+.wire .p.out { top: 15px; background: var(--body); box-shadow: 0 0 10px var(--body); }
+.wire .p.back { bottom: 15px; background: var(--res); box-shadow: 0 0 10px var(--res); }
+.in .wire .p.out { animation: out 1.1s var(--ease) .2s infinite; }
+.in .wire .p.back { animation: back 1.1s var(--ease) .75s infinite; }
+.wire .lab { position: absolute; left: 50%; transform: translateX(-50%); font: 12px var(--font-mono); color: var(--muted); white-space: nowrap; }
+.wire .lab.a { top: -2px; } .wire .lab.b { bottom: -2px; }
+@keyframes out { 0% { left: 0; opacity: 0; } 12%, 85% { opacity: 1; } 100% { left: 100%; opacity: 0; } }
+@keyframes back { 0% { left: 100%; opacity: 0; } 12%, 85% { opacity: 1; } 100% { left: 0; opacity: 0; } }
+.meters { display: grid; gap: 10px; max-width: 560px; }
+.meter { display: grid; grid-template-columns: 90px minmax(0, 1fr) 76px; align-items: center; gap: 14px; font-size: 13.5px; color: var(--muted); }
+.meter b { font: 600 13.5px var(--font-mono); color: var(--ink); text-align: right; }
+.bar { height: 10px; border-radius: 6px; background: var(--sunken); border: 1px solid var(--line); overflow: hidden; }
+.bar i { display: block; height: 100%; width: var(--w); border-radius: 6px; background: linear-gradient(90deg, var(--body), var(--res)); }
+.in .bar i { animation: fillbar 1.1s var(--ease) both .3s; }
+@keyframes fillbar { from { width: 0; } }
+.note { margin: 0; color: var(--muted); font-size: 13px; }
+
+.verdict { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+.big { font: 500 clamp(64px, 8vw, 100px)/1 var(--font-mono); letter-spacing: -.025em; color: var(--res); }
+.in .big { animation: slam .7s var(--spring) both; }
+@keyframes slam { from { opacity: 0; transform: scale(1.5) translateY(-8px); } }
+.verdict .what { display: grid; gap: 4px; max-width: 46ch; }
+.verdict .what b { font-size: 23px; font-weight: 600; letter-spacing: -.02em; }
+.verdict .what span { color: var(--muted); font-size: 15px; }
+
+/* Reveal: content is visible at rest; entering sections play a short entrance. */
+@media (prefers-reduced-motion: no-preference) {
+  .sec.in > *, .hero.in > * { animation: rise .6s var(--ease) both; }
+  .sec.in > *:nth-child(2) { animation-delay: .07s; }
+  .sec.in > *:nth-child(3) { animation-delay: .14s; }
+  .sec.in > *:nth-child(4) { animation-delay: .21s; }
+  .sec.in .f, .sec.in .hcard, .sec.in .slot { animation: rise .5s var(--ease) both; animation-delay: calc(min(var(--d, 0), 12) * 22ms + 100ms); }
+  .hero.in .part .key { animation: drop .6s var(--spring) both; animation-delay: calc(var(--i) * 60ms + 150ms); }
+  .hero.in .stem { animation: grow .45s var(--ease) both; animation-delay: calc(var(--i) * 60ms + 380ms); }
+  .hero.in .lbl { animation: rise .4s var(--ease) both; animation-delay: calc(var(--i) * 60ms + 500ms); }
+}
+@keyframes rise { from { opacity: 0; transform: translateY(12px); } }
+@keyframes drop { from { opacity: 0; transform: translateY(-12px) scale(.85); } }
+@keyframes grow { from { transform: scaleY(0); } }
+
+/* Curl bar */
+.curlbar { position: fixed; left: 50%; bottom: max(14px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 20; width: min(1116px, calc(100% - 32px));
+  border-radius: 16px; background: #131417; color: #d8dbe0; border: 1px solid #262b33; box-shadow: var(--float); }
+.curlbar-h { display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 16px; font: 12px var(--font-mono); color: #8a8f98; }
+.curlbar-h .dot { width: 8px; height: 8px; border-radius: 50%; background: #3ccf7a; box-shadow: 0 0 8px #3ccf7a; }
+.curlbar-h .one { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #d8dbe0; }
+.curlbar button { border: 0; border-radius: 8px; background: #25272c; color: #c8ccd2; font: 12px var(--font-sans); padding: 5px 10px; cursor: pointer; white-space: nowrap; }
+.curlbar button.done { color: #3ccf7a; }
+.curlbar pre { margin: 0; padding: 4px 16px 14px; font: 12.5px/1.7 var(--font-mono); letter-spacing: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40vh; overflow: auto; }
+.curlbar .v { color: #fff; }
+.curlbar .v.flash { animation: cflash .9s var(--ease); }
+@keyframes cflash { 0% { background: rgb(90 162 255 / .45); } }
+.curlbar .cmd { color: #5aa2ff; }
+
+/* Search */
+.search { position: fixed; inset: 0; z-index: 40; display: grid; place-items: start center; padding: 12vh 16px 16px; background: rgb(10 14 20 / .35); }
+.search-card { width: min(560px, 100%); border-radius: 14px; background: var(--paper); border: 1px solid var(--line); box-shadow: var(--float); overflow: hidden; }
+.search input { width: 100%; border: 0; outline: 0; background: none; padding: 16px 18px; font-size: 16px; border-bottom: 1px solid var(--line); }
+.results { max-height: 50vh; overflow: auto; padding: 6px; display: grid; }
+.res { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 0; border-radius: 10px; background: none; text-align: left; cursor: pointer; font: 13.5px var(--font-mono); }
+.res .tile { font-size: 15px; }
+.res small { margin-left: auto; font: 12px var(--font-sans); color: var(--muted); }
+.res[aria-selected="true"] { background: color-mix(in srgb, var(--body) 10%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--body) 40%, transparent); }
+.empty { padding: 14px; color: var(--muted); font-size: 13.5px; }
+@media (prefers-reduced-motion: no-preference) { .search:not([hidden]) .search-card { animation: rise .25s var(--ease); } }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+@media (max-width: 900px) {
+  .page { grid-template-columns: minmax(0, 1fr); gap: 18px; padding-top: 0; }
+  .rail { top: env(safe-area-inset-top, 0px); z-index: 15; margin: 0 -16px; padding: 10px 16px; gap: 10px; background: var(--canvas); border-bottom: 1px solid var(--line); }
+  .mini-url { display: none; }
+  .map { display: flex; gap: 6px; padding: 0; overflow-x: auto; scrollbar-width: none; }
+  .map .track, .packet { display: none; }
+  .stop { width: auto; flex-shrink: 0; padding: 6px 10px; }
+  .stop small { display: none; }
+  .rail-top { display: flex; align-items: center; justify-content: space-between; }
+  .find { height: 32px; }
+  .find kbd { display: none; }
+  .sec { padding: 20px 16px; }
+  .sec-h p { grid-column: 1 / -1; }
+  .split { grid-template-columns: minmax(0, 1fr); }
+  .json { position: static; max-height: none; }
+  .f { grid-template-columns: minmax(0, 1fr) minmax(100px, 150px); }
+  .f .ty { display: none; }
+  .trip { gap: 8px; }
+  .end .tile { font-size: 34px; }
+  .anatomy { --k: 16px; padding: 18px; }
+}
+</style>
+
+<div class="page">
+  <aside class="rail" aria-label="Mini-map">
+    <div class="rail-top">
+      <span class="brand"><span class="brand-mark"><i style="background:var(--path)"></i><i style="background:var(--query)"></i><i style="background:var(--header)"></i><i style="background:var(--body)"></i></span>http-render</span>
+    </div>
+    <div class="mini-url" id="mini-url"></div>
+    <nav class="map" id="map"><span class="track"><i id="track-fill"></i></span><span class="packet" id="packet"></span></nav>
+    <button type="button" class="find" id="open-search"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg><span>Jump to a field</span><kbd>⌘K</kbd></button>
+  </aside>
+  <main id="main"></main>
+</div>
+
+<div class="curlbar" id="curlbar">
+  <div class="curlbar-h"><span class="dot"></span><span class="one" id="curl-one"></span><button type="button" id="curl-toggle" aria-expanded="false">Show curl</button><button type="button" id="curl-copy">Copy</button></div>
+  <pre id="curl" hidden></pre>
+</div>
+
+<div class="search" id="search" hidden>
+  <div class="search-card" role="dialog" aria-modal="true" aria-label="Jump to a field">
+    <input id="q" placeholder="Search fields, headers and params…" autocomplete="off" spellcheck="false" aria-label="Search fields">
+    <div class="results" id="results" role="listbox"></div>
+  </div>
+</div>
+
+<script>
+const DOC = __DOC__;
+const req = DOC.request, res = DOC.response;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const G = {
+  get: '<path d="M8 2.5v7.5M4.5 6.5 8 10l3.5-3.5M3 13.5h10"/>', post: '<path d="M8 3v10M3 8h10"/>', put: '<path d="M12.5 6A4.8 4.8 0 0 0 3.6 5M3.5 10a4.8 4.8 0 0 0 8.9 1M3.5 2.5V5H6M12.5 13.5V11H10"/>',
+  patch: '<path d="M3 13l.8-3L10.5 3.3l2.2 2.2L6 12.2z"/>', delete: '<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 8.5h5.6l.7-8.5"/>',
+  path: '<path d="M10.5 2.5 5.5 13.5"/>', query: '<path d="M5.8 6a2.2 2.2 0 1 1 3.2 2c-.7.4-1 .9-1 1.6M8 12.6v.01"/>', header: '<path d="M2.5 3.5h5l6 6-4 4-6-6z"/><circle cx="5.5" cy="6.5" r=".6"/>',
+  body: '<path d="M6 2.5c-1.6 0-2 .8-2 2v1.3c0 1-.6 2.2-1.6 2.2 1 0 1.6 1.2 1.6 2.2v1.3c0 1.2.4 2 2 2M10 2.5c1.6 0 2 .8 2 2v1.3c0 1 .6 2.2 1.6 2.2-1 0-1.6 1.2-1.6 2.2v1.3c0 1.2-.4 2-2 2"/>',
+  res: '<path d="M3.5 8.5l3 3 6-7"/>', err: '<path d="M8 3.5v5.5M8 12.3v.01"/>', host: '<circle cx="8" cy="8" r="5.5"/><path d="M2.5 8h11M8 2.5c2 2.2 2 8.8 0 11M8 2.5c-2 2.2-2 8.8 0 11"/>',
+  addr: '<path d="M8 14s4.5-4.2 4.5-7.5a4.5 4.5 0 0 0-9 0C3.5 9.8 8 14 8 14z"/><circle cx="8" cy="6.5" r="1.5"/>', you: '<rect x="2.5" y="3.5" width="11" height="7.5" rx="1.5"/><path d="M5.5 13.5h5"/>',
+  trip: '<path d="M2.5 5.5h9M9 3l2.5 2.5L9 8M13.5 10.5h-9M7 8l-2.5 2.5L7 13"/>', lock: '<rect x="3.5" y="7" width="9" height="6.5" rx="1.5"/><path d="M5.5 7V5.5a2.5 2.5 0 0 1 5 0V7"/>',
+};
+const tile = (g, c) => `<i class="tile" style="--c:${c}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${G[g]}</svg></i>`;
+const METHOD = { GET: ["get", "var(--ok)", "reads"], POST: ["post", "var(--body)", "creates"], PUT: ["put", "var(--header)", "replaces"], PATCH: ["patch", "var(--path)", "updates"], DELETE: ["delete", "var(--err)", "removes"] };
+const [mGlyph, mColor, mVerb] = METHOD[req.method] || ["post", "var(--muted)", "calls"];
+const bad = res && res.status >= 400;
+if (bad) document.documentElement.style.setProperty("--res", "var(--err)");
+
+const HEADER_WHY = {
+  "authorization": "Proves who you are. Never share it.", "content-type": "Tells the server what format the body is in.", "accept": "Says which formats you can read back.",
+  "idempotency-key": "Makes retries safe: the same key won't create twice.", "user-agent": "Names the client making the call.", "cookie": "Session data the browser sends along.",
+  "x-api-key": "Your key for this API. Keep it secret.", "location": "Where the newly created thing lives.", "x-request-id": "Quote this when asking the API team for help.",
+  "ratelimit-remaining": "How many calls you have left before you're slowed down.", "cache-control": "How long this answer can be reused.", "etag": "A fingerprint of this version of the data.",
+  "set-cookie": "Asks your browser to store a cookie.", "date": "When the server answered.",
+};
+const RES_WHY = { "content-type": "The format this answer is in.", "content-length": "Size of this answer in bytes." };
+const STATUS = {
+  200: "It worked. Here's what you asked for.", 201: "It worked, and something new was created.", 202: "Accepted. The work will finish later.", 204: "It worked. There's nothing to send back.",
+  301: "It moved for good. Follow the new address.", 302: "It's somewhere else for now.", 304: "Nothing changed since you last asked.",
+  400: "The request didn't make sense to the server.", 401: "You need to sign in, or your token is wrong.", 403: "You're signed in, but not allowed to do this.", 404: "There's nothing at this address.",
+  409: "It clashes with something that already exists.", 422: "The request was understood, but some values are invalid.", 429: "Too many requests. Slow down and retry later.",
+  500: "Something broke on the server.", 502: "A server in the middle got a bad answer.", 503: "The server is busy or down for now.",
+};
+
+/* ---------- Editable state ---------- */
+const state = {
+  path: Object.fromEntries(req.pathParams.map((p) => [p.name, p.value])),
+  query: Object.fromEntries(req.query.map((q) => [q.name, q.value])),
+  body: structuredClone(req.body?.example ?? null),
+};
+const host = new URL(req.baseUrl).host;
+const segs = req.pathTemplate.split("/").filter(Boolean).map((s) => { const m = /^\{(\w+)\}$/.exec(s); return m ? { param: m[1] } : { text: s }; });
+
+function liveUrl(html) {
+  const v = (kind, name, val) => (html ? `<span class="v" data-v="${kind}:${esc(name)}" style="--c:var(--${kind})">${esc(val)}</span>` : val);
+  let out = `https://${host}`;
+  for (const s of segs) out += "/" + (s.param ? v("path", s.param, state.path[s.param]) : html ? esc(s.text) : s.text);
+  const q = Object.entries(state.query).map(([k, val]) => `${html ? esc(k) : k}=${v("query", k, val)}`).join(html ? "&amp;" : "&");
+  return q ? out + "?" + q : out;
+}
+const sq = (t) => String(t).replace(/'/g, "'\\''");
+function bodyText() {
+  const b = req.body;
+  if (!b) return null;
+  if (b.kind === "text") return b.raw ?? "";
+  if (b.kind === "form" && state.body && typeof state.body === "object") return new URLSearchParams(Object.entries(state.body).map(([k, v]) => [k, v === null ? "" : String(v)])).toString();
+  if (b.kind === "json") return JSON.stringify(state.body);
+  return null;
+}
+function curl(html) {
+  const e = (t) => (html ? esc(t) : t);
+  const lines = [`${html ? '<span class="cmd">curl</span>' : "curl"}${req.method === "GET" ? "" : ` -X ${req.method}`} '${liveUrl(html)}'`];
+  for (const h of req.headers) lines.push(`  -H '${e(sq(`${h.name}: ${h.value}`))}'`);
+  const b = req.body;
+  if (b?.kind === "multipart" && state.body && typeof state.body === "object") {
+    for (const [k, v] of Object.entries(state.body)) lines.push(`  -F '${e(sq(`${k}=${v}`))}'`);
+  } else if (b?.kind === "binary") {
+    lines.push(`  --data-binary ${e(b.raw || "@file")}`);
+  } else {
+    const t = bodyText();
+    if (t !== null) lines.push(`  --data-raw '${html ? `<span class="v" data-v="body:">${esc(sq(t))}</span>` : sq(t)}'`);
+  }
+  return lines.join(" \\\n");
+}
+function renderCurl(flashKey) {
+  $("curl").innerHTML = curl(true);
+  $("curl-one").textContent = `curl${req.method === "GET" ? "" : ` -X ${req.method}`} '${liveUrl(false)}'`;
+  if (flashKey) $("curl").querySelectorAll(`[data-v="${CSS.escape(flashKey)}"]`).forEach((e) => e.classList.add("flash"));
+}
+
+/* ---------- Building blocks ---------- */
+function typeOf(schema) {
+  if (!schema) return "";
+  let t = schema.type === "array" ? (schema.items?.type === "object" ? "object" : schema.items?.type) + "[]" : schema.type;
+  if (schema.nullable && schema.type !== "null") t += " | null";
+  return esc(t) + (schema.format ? ` · <b>${esc(schema.format)}</b>` : "");
+}
+const MAX_ITEMS = 3;
+const fieldsOf = (s) => (s?.type === "object" ? s.fields : s?.type === "array" && s.items?.type === "object" ? s.items.fields : null);
+const countFields = (s) => (fieldsOf(s) || []).reduce((n, f) => n + 1 + countFields(f.schema), 0);
+const fmtBytes = (n) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`);
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+function shape(body) {
+  if (!body) return "none";
+  const s = body.schema;
+  if (s?.type === "array") return Array.isArray(body.example) ? `list of ${body.example.length}` : "list";
+  const f = fieldsOf(s);
+  if (f) return plural(f.length, "field");
+  if (body.kind === "text") return "text";
+  if (body.kind === "binary") return "binary";
+  return s?.type ?? body.kind;
+}
+function group(name, type, pill, inner, open) {
+  return `<details class="group"${open ? " open" : ""}><summary class="group-h"><span class="chev"></span>${esc(name)}<span class="ty">${type}</span><span class="pill">${pill}</span></summary>${inner}</details>`;
+}
+function items(schema, list, path, side) {
+  const shown = list.slice(0, MAX_ITEMS).map((item, i) => `<div class="item-h">#${i + 1}</div>${tree(schema, item, `${path}[${i}]`, side)}`).join("");
+  return shown + (list.length > MAX_ITEMS ? `<p class="item-more">${plural(list.length - MAX_ITEMS, "more item")} with the same fields, in the JSON.</p>` : "");
+}
+const index = [];
+let d = 0;
+function tree(schema, value, path, side) {
+  const fields = [...(schema?.fields || [])].sort((a, b) => Number(b.required) - Number(a.required));
+  return fields.map((f) => {
+    const p = path ? `${path}.${f.name}` : f.name;
+    const v = value?.[f.name];
+    const s = f.schema;
+    const key = `${side}:${p.replace(/\[\d+\]/g, "[]")}`;
+    if (s.type === "object" && s.fields?.length) {
+      return group(f.name, "object", plural(s.fields.length, "field"), tree(s, v, p, side), side === "req" || countFields(s) <= 10);
+    }
+    if (s.type === "array" && s.items?.type === "object" && s.items.fields?.length && Array.isArray(v) && v.length) {
+      return group(f.name, "object[]", plural(v.length, "item"), items(s.items, v, p, side), side === "req" || countFields(s) <= 10);
+    }
+    const id = `f-${side}-${p.replace(/[^\w]+/g, "-")}`;
+    if (!index.some((x) => x.key === key)) index.push({ key, id, name: p.replace(/\[(\d+)\]/g, "[]"), where: side === "req" ? "Request body" : "Response body", g: "body", c: side === "req" ? "var(--body)" : "var(--res)", type: typeOf(s).replace(/<[^>]+>/g, "") });
+    const name = `<span class="nm">${esc(f.name)}${f.required ? "" : '<span class="opt">optional</span>'}</span>`;
+    let val;
+    if (side === "res" || (v !== null && typeof v === "object")) {
+      const t = v === null || v === undefined ? "null" : typeof v === "string" ? `“${v}”` : typeof v === "object" ? JSON.stringify(v) : String(v);
+      val = `<span class="static">${esc(t)}</span>`;
+    } else val = `<input class="edit" data-path="${esc(p)}" value="${esc(v === null || v === undefined ? "null" : String(v))}" aria-label="${esc(p)}" spellcheck="false">`;
+    return `<div class="f" id="${id}" data-k="${esc(key)}" style="--d:${d++}">${name}<span class="ty">${typeOf(s)}</span>${val}</div>`;
+  }).join("");
+}
+function jsonLines(value, side) {
+  const out = [];
+  const walk = (v, ind, key, path, comma) => {
+    const pad = "  ".repeat(ind);
+    const k = path ? `${side}:${path}` : "";
+    if (v && typeof v === "object") {
+      const arr = Array.isArray(v), entries = arr ? v.map((x) => [null, x]) : Object.entries(v);
+      out.push([k, `${pad}${key}<span class="jp">${arr ? "[" : "{"}</span>`]);
+      entries.forEach(([kk, x], i) => walk(x, ind + 1, kk === null ? "" : `<span class="jk">"${esc(kk)}"</span><span class="jp">: </span>`, kk === null ? path + "[]" : path ? `${path}.${kk}` : kk, i < entries.length - 1));
+      out.push([k, `${pad}<span class="jp">${arr ? "]" : "}"}</span>${comma ? "," : ""}`]);
+    } else {
+      const cls = typeof v === "string" ? "js" : typeof v === "number" ? "jn" : typeof v === "boolean" ? "jb" : "jz";
+      out.push([k, `${pad}${key}<span class="${cls}">${esc(typeof v === "string" ? JSON.stringify(v) : String(v))}</span>${comma ? "," : ""}`]);
+    }
+  };
+  walk(value, 0, "", "", false);
+  return out.map(([k, h]) => `<div class="jl"${k ? ` data-k="${esc(k)}"` : ""}>${h}</div>`).join("");
+}
+function jsonHead(body, side) {
+  const type = (body.contentType || "").split(";")[0] || "application/json";
+  return `<div class="jh">${esc(type)}${body.kind === "form" ? " · shown as fields" : ""}${body.truncated ? " · cut short" : ""}</div>`;
+}
+function bodyView(body, value, side) {
+  const s = body.schema;
+  if (!s) {
+    if (body.kind === "text") {
+      return `<pre class="raw">${esc(body.raw ?? "")}</pre>${body.truncated ? '<p class="note">Cut short. Only the start is shown.</p>' : ""}`;
+    }
+    return `<div class="binary">${tile("lock", "var(--muted)")}<span><b>${body.raw ? esc(body.raw) : "Binary content"}</b>${fmtBytes(body.size)} · ${esc(body.contentType || "unknown type")}</span></div>`;
+  }
+  let rows;
+  if (s.type === "array") {
+    const list = Array.isArray(value) ? value : [];
+    rows = s.items?.type === "object" && s.items.fields?.length && list.length
+      ? group("list", "object[]", plural(list.length, "item"), items(s.items, list, "", side), true)
+      : tree({ fields: [{ name: "items", required: true, schema: s }] }, { items: value }, "", side);
+  } else if (s.type === "object" && s.fields?.length) {
+    rows = tree(s, value, "", side);
+  } else {
+    rows = tree({ fields: [{ name: "value", required: true, schema: s }] }, { value }, "", side);
+  }
+  return `<div class="split"><div class="tree">${rows}</div><div class="json" id="json-${side}" style="--c:var(--${side === "req" ? "body" : "res"})">${jsonHead(body, side)}${jsonLines(value, side)}</div></div>`;
+}
+function sec(id, g, c, title, sub, body) {
+  return `<section class="sec" id="${id}" style="--c:${c}"><div class="sec-h">${tile(g, c)}<h2>${title}</h2><p>${sub}</p></div>${body}</section>`;
+}
+
+/* ---------- Sections ---------- */
+const SECTIONS = [
+  { id: "address", name: "Address", g: "addr", c: "var(--path)", sum: req.pathParams.length + req.query.length ? plural(req.pathParams.length + req.query.length, "value") : "no params" },
+  { id: "headers", name: "Headers", g: "header", c: "var(--header)", sum: req.headers.length ? `${req.headers.length} sent` : "none" },
+  { id: "body", name: "Body", g: "body", c: "var(--body)", sum: shape(req.body) },
+  { id: "trip", name: "Round trip", g: "trip", c: "var(--query)", sum: res ? (res.timeMs != null ? `${res.timeMs} ms` : "sample") : "not sent" },
+  { id: "status", name: "Status", g: bad ? "err" : "res", c: res ? "var(--res)" : "var(--muted)", sum: res ? `${res.status} ${res.statusText}` : "none" },
+  { id: "response", name: "Response", g: "body", c: res ? "var(--res)" : "var(--muted)", sum: res ? shape(res.body) : "none" },
+];
+
+function hero() {
+  const parts = [{ key: [mGlyph, mColor, req.method], label: "method", note: mVerb, c: mColor }, { key: ["host", "var(--ink-2)", host], label: "server", note: "where it lives", c: "var(--ink-2)" }];
+  for (const s of segs) {
+    parts.push({ plain: "/" });
+    if (!s.param) parts.push({ plain: s.text });
+    else { const p = req.pathParams.find((x) => x.name === s.param); parts.push({ key: ["path", "var(--path)", s.param], label: "path param", note: `you fill it in · ${p?.format || p?.type}`, c: "var(--path)" }); }
+  }
+  req.query.forEach((q, i) => { parts.push({ plain: i ? "&" : "?" }); parts.push({ key: ["query", "var(--query)", q.name], label: "query", note: q.type, c: "var(--query)" }); });
+  let n = 0;
+  const anatomy = parts.map((p) => {
+    if (p.plain) return `<span class="plain">${esc(p.plain)}</span>`;
+    const i = n++;
+    return `<span class="part${i % 2 ? " long" : ""}" style="--c:${p.c};--i:${i}"><span class="key" style="--c:${p.c}">${tile(p.key[0], p.key[1])}${esc(p.key[2])}</span><span class="stem"></span><span class="lbl"><b>${p.label}</b>${esc(p.note)}</span></span>`;
+  }).join("");
+  const facts = res ? `<span>${tile(bad ? "err" : "res", "var(--res)")}</span><b>${res.status} ${esc(res.statusText)}</b>${res.timeMs != null ? `<span><b>${res.timeMs}</b> ms</span>` : ""}<span><b>${fmtBytes(res.size)}</b> back</span><span>${DOC.meta.executed ? "Captured from a live call" : "Sample response"}</span>` : `<span>No response captured. Documented from the request.</span>`;
+  return `<header class="hero" id="top"><div class="facts">${facts}</div><h1>${esc(req.method)} ${esc(req.pathTemplate)} <span>${mVerb} ${esc(segs.filter((s) => s.text).at(-1)?.text ?? "a resource")}.</span></h1><div class="anatomy">${anatomy}</div></header>`;
+}
+
+function address() {
+  const slots = [
+    ...req.pathParams.map((p) => ({ kind: "path", name: p.name, value: state.path[p.name], type: p.format || p.type, where: "Goes in the path." })),
+    ...req.query.map((q) => ({ kind: "query", name: q.name, value: state.query[q.name], type: q.type, where: "Goes after the ?." })),
+  ];
+  slots.forEach((s) => index.push({ key: `slot:${s.kind}:${s.name}`, id: `slot-${s.kind}-${s.name}`, name: s.name, where: s.kind === "path" ? "Path param" : "Query param", g: s.kind, c: `var(--${s.kind})`, type: s.type }));
+  return sec("address", "addr", "var(--path)", "Address", slots.length ? "Change any value and the URL and curl below follow along." : "Nothing to fill in. This address has no path or query parameters.",
+    `${slots.length ? `<div class="fill">${slots.map((s, i) => `<label class="slot" id="slot-${s.kind}-${esc(s.name)}" style="--c:var(--${s.kind});--d:${i}"><span class="k">${tile(s.kind, `var(--${s.kind})`)}${esc(s.name)}<span>${esc(s.type)}</span></span><input class="edit" data-slot="${s.kind}:${esc(s.name)}" value="${esc(s.value)}" spellcheck="false"><small>${s.where}</small></label>`).join("")}</div>` : ""}
+     <div class="liveurl" id="liveurl">${liveUrl(true)}</div>`);
+}
+function headers() {
+  req.headers.forEach((h) => index.push({ key: `h:${h.name}`, id: `h-${h.name}`, name: h.name, where: "Request header", g: "header", c: "var(--header)", type: "string" }));
+  if (!req.headers.length) return sec("headers", "header", "var(--header)", "Headers", "No headers are sent with this request.", "");
+  return sec("headers", "header", "var(--header)", "Headers", `${plural(req.headers.length, "header")} travel with the request.`,
+    `<div class="hcards">${req.headers.map((h, i) => `<div class="hcard" id="h-${esc(h.name)}" style="--c:var(--header);--d:${i}"><span class="k">${tile(h.redacted ? "lock" : "header", "var(--header)")}${esc(h.name)}</span><span class="val">${esc(h.value)}${h.redacted ? '<span class="lock">hidden</span>' : ""}</span><span class="why">${esc(HEADER_WHY[h.name.toLowerCase()] || "Sent along with the request.")}</span></div>`).join("")}</div>`);
+}
+function body() {
+  if (!req.body) return sec("body", "body", "var(--body)", "Body", "This request has no body.", "");
+  d = 0;
+  const b = req.body;
+  const sub = b.schema ? `${shape(b)}, required ones first. Edit any value, hover one to find it in the JSON.` : b.kind === "text" ? "Sent as plain text." : "Sent as a file.";
+  return sec("body", "body", "var(--body)", "Body", sub, bodyView(b, state.body, "req"));
+}
+function trip() {
+  const ms = res?.timeMs, size = res?.size ?? 0;
+  return sec("trip", "trip", "var(--query)", "Round trip", ms != null ? `Out to ${esc(host)} and back in ${ms} ms.` : "Out to the server and back.",
+    `<div class="trip"><div class="end">${tile("you", "var(--body)")}<b>You</b></div>
+      <div class="wire"><span class="lab a">${esc(req.method)} ${esc(req.pathTemplate)}</span><i class="p out"></i>${res ? '<i class="p back"></i>' : ""}<span class="lab b">${res ? `${res.status} ${esc(res.statusText)}` : "no response"}</span></div>
+      <div class="end">${tile("host", "var(--ink-2)")}<b>${esc(host)}</b></div></div>
+     <div class="meters"><div class="meter"><span>Time</span><div class="bar"><i style="--w:${ms != null ? Math.min(100, (ms / 1000) * 100 + 3) : 0}%"></i></div><b>${ms != null ? ms + " ms" : "n/a"}</b></div>
+       <div class="meter"><span>Size back</span><div class="bar"><i style="--w:${res ? Math.min(100, (size / 5000) * 100 + 3) : 0}%"></i></div><b>${res ? fmtBytes(size) : "n/a"}</b></div></div>
+     <p class="note">${res ? "Bars are scaled to 1 second and 5 KB." : "The request wasn't sent, so there's nothing to time."}</p>`);
+}
+function status() {
+  if (!res) return sec("status", "res", "var(--muted)", "Status", "No response was captured. Send the request, or pass a sample response.", "");
+  res.headers.forEach((h) => index.push({ key: `rh:${h.name}`, id: `rh-${h.name}`, name: h.name, where: "Response header", g: "header", c: "var(--res)", type: "string" }));
+  return sec("status", bad ? "err" : "res", "var(--res)", "Status", "What the server said back.",
+    `<div class="verdict"><span class="big" id="big">${res.status}</span><span class="what"><b>${esc(res.statusText)}</b><span>${esc(STATUS[res.status] || "The server answered.")}</span></span></div>
+     <div class="hcards">${res.headers.map((h, i) => `<div class="hcard" id="rh-${esc(h.name)}" style="--c:var(--res);--d:${i}"><span class="k">${tile("header", "var(--res)")}${esc(h.name)}</span><span class="val">${esc(h.value)}</span><span class="why">${esc(RES_WHY[h.name.toLowerCase()] || HEADER_WHY[h.name.toLowerCase()] || "Sent back with the answer.")}</span></div>`).join("")}</div>`);
+}
+function response() {
+  if (!res) return sec("response", "body", "var(--muted)", "Response", "Nothing came back yet.", "");
+  if (!res.body) return sec("response", "body", "var(--res)", "Response", res.status === 204 ? "No body. A 204 means it worked and there's nothing to send back." : "No body came back.", "");
+  d = 0;
+  const b = res.body;
+  const total = countFields(b.schema);
+  const sub = b.schema
+    ? `${b.schema.type === "array" ? `A ${shape(b)}` : shape(b)} came back${total > 30 ? `, ${total} values in all. Big groups start folded` : ""}. Hover a field to find it in the JSON.`
+    : b.kind === "text" ? `Text came back (${esc((b.contentType || "").split(";")[0] || "text")}).` : "Binary content came back.";
+  return sec("response", "body", "var(--res)", "Response", sub, bodyView(b, b.example, "res"));
+}
+
+/* ---------- Rail ---------- */
+function renderRail() {
+  let html = `<button type="button" class="key" style="--c:${mColor}" data-go="address">${tile(mGlyph, mColor)}${esc(req.method)}</button>`;
+  for (const s of segs) html += `<span class="plain">/</span>` + (s.param ? `<button type="button" class="key" style="--c:var(--path)" data-go="slot-path-${esc(s.param)}" data-k="path:${esc(s.param)}">${tile("path", "var(--path)")}${esc(s.param)}</button>` : `<span class="plain">${esc(s.text)}</span>`);
+  req.query.forEach((q, i) => (html += `<span class="plain">${i ? "&amp;" : "?"}</span><button type="button" class="key" style="--c:var(--query)" data-go="slot-query-${esc(q.name)}" data-k="query:${esc(q.name)}">${tile("query", "var(--query)")}${esc(q.name)}</button>`));
+  $("mini-url").innerHTML = html;
+  $("map").insertAdjacentHTML("beforeend", SECTIONS.map((s) => `<button type="button" class="stop" style="--c:${s.c}" data-go="${s.id}">${tile(s.g, s.c)}<span><b>${s.name}</b><small>${esc(s.sum)}</small></span></button>`).join(""));
+}
+
+/* ---------- Scroll-linked mini-map ---------- */
+let current = -1;
+function onScroll() {
+  const mark = innerHeight * 0.35;
+  const secs = SECTIONS.map((s) => $(s.id).getBoundingClientRect());
+  let i = secs.findLastIndex((r) => r.top <= mark);
+  let frac = 0;
+  if (i < 0) i = 0;
+  else frac = Math.min(1, Math.max(0, (mark - secs[i].top) / secs[i].height));
+  if (innerHeight + scrollY >= document.documentElement.scrollHeight - 4) { i = SECTIONS.length - 1; frac = 0; }
+  const stops = [...document.querySelectorAll(".stop")];
+  const mapRect = $("map").getBoundingClientRect();
+  const center = (el) => el.getBoundingClientRect().top - mapRect.top + el.offsetHeight / 2;
+  const a = center(stops[i]), b = stops[i + 1] ? center(stops[i + 1]) : a;
+  const y = a + (b - a) * frac;
+  $("packet").style.transform = `translateY(${y - 7}px)`;
+  const first = center(stops[0]), last = center(stops.at(-1));
+  $("track-fill").parentElement.style.setProperty("--fill", `${Math.max(0, ((y - first) / (last - first)) * 100)}%`);
+  if (i !== current) {
+    current = i;
+    stops.forEach((s, k) => { s.classList.toggle("on", k === i); s.classList.toggle("seen", k < i); });
+    if (SECTIONS[i].id === "status" && res && !reduce && !counted) countUp();
+  }
+}
+let counted = false;
+function countUp() {
+  counted = true;
+  const el = $("big"), target = res.status, start = performance.now();
+  const step = (t) => { const k = Math.min(1, (t - start) / 800); el.textContent = Math.round(100 + (target - 100) * (1 - Math.pow(1 - k, 3))); if (k < 1) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
+
+/* ---------- Interactions ---------- */
+function goTo(id, pulse) {
+  const el = $(id);
+  if (!el) return;
+  for (let p = el.parentElement; p; p = p.parentElement) if (p.tagName === "DETAILS") p.open = true;
+  el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: el.classList.contains("sec") ? "start" : "center" });
+  if (pulse) {
+    el.classList.remove("pulse");
+    void el.offsetWidth;
+    el.classList.add("pulse");
+    if (!el.classList.contains("f")) el.animate([{ boxShadow: "0 0 0 3px color-mix(in srgb, var(--c) 60%, transparent)" }, { boxShadow: "0 0 0 0 transparent" }], { duration: 1400, easing: "ease-out" });
+    el.querySelector("input")?.focus({ preventScroll: true });
+  }
+}
+document.addEventListener("click", (e) => {
+  const g = e.target.closest("[data-go]");
+  if (g) goTo(g.dataset.go, g.dataset.go.includes("-"));
+});
+
+function coerce(raw, old) {
+  if (typeof old === "number") return raw.trim() !== "" && !isNaN(Number(raw)) ? Number(raw) : raw;
+  if (typeof old === "boolean") return raw === "true" ? true : raw === "false" ? false : raw;
+  if (old === null) return raw === "null" ? null : raw;
+  return raw;
+}
+function setAt(obj, path, raw) {
+  const keys = path.replace(/\[(\d+)\]/g, ".$1").split(".").filter(Boolean);
+  let o = obj;
+  for (const k of keys.slice(0, -1)) o = o[k];
+  const last = keys.at(-1);
+  o[last] = coerce(raw, o[last]);
+}
+document.addEventListener("input", (e) => {
+  const el = e.target;
+  if (!el.matches?.(".edit")) return;
+  if (el.dataset.slot) {
+    const [kind, name] = el.dataset.slot.split(":");
+    state[kind][name] = el.value;
+    $("liveurl").innerHTML = liveUrl(true);
+    $("liveurl").querySelector(`[data-v="${CSS.escape(el.dataset.slot)}"]`)?.classList.add("flash");
+    renderCurl(el.dataset.slot);
+    document.querySelectorAll(`#mini-url [data-k="${CSS.escape(el.dataset.slot)}"]`).forEach((k) => { k.classList.remove("lit"); void k.offsetWidth; k.classList.add("lit"); });
+  } else if (el.dataset.path) {
+    setAt(state.body, el.dataset.path, el.value);
+    $("json-req").innerHTML = jsonHead(req.body, "req") + jsonLines(state.body, "req");
+    renderCurl("body:");
+  }
+});
+
+let lit = [];
+document.addEventListener("mouseover", (e) => {
+  const k = e.target.closest?.(".f[data-k], .jl[data-k]")?.dataset.k;
+  if (lit.k === k) return;
+  lit.forEach((x) => x.classList.remove("hl"));
+  lit = k ? [...document.querySelectorAll(`[data-k="${CSS.escape(k)}"]`)].filter((x) => x.matches(".f, .jl")) : [];
+  lit.k = k;
+  lit.forEach((x) => x.classList.add("hl"));
+  lit.find((x) => x.matches(".jl"))?.scrollIntoView({ block: "nearest" });
+});
+
+/* Curl bar */
+$("curl-toggle").addEventListener("click", (e) => {
+  const pre = $("curl");
+  pre.hidden = !pre.hidden;
+  e.currentTarget.textContent = pre.hidden ? "Show curl" : "Hide curl";
+  e.currentTarget.setAttribute("aria-expanded", String(!pre.hidden));
+});
+$("curl-copy").addEventListener("click", async (e) => {
+  const b = e.currentTarget;
+  try { await navigator.clipboard.writeText(curl(false)); b.textContent = "Copied"; b.classList.add("done"); }
+  catch { const r = document.createRange(); r.selectNodeContents($("curl")); getSelection().removeAllRanges(); getSelection().addRange(r); b.textContent = "Selected"; }
+  setTimeout(() => { b.textContent = "Copy"; b.classList.remove("done"); }, 1400);
+});
+
+/* Search */
+let sel = 0, hits = [];
+function openSearch() { $("search").hidden = false; $("q").value = ""; find(""); $("q").focus(); }
+function closeSearch() { $("search").hidden = true; }
+function find(q) {
+  const t = q.trim().toLowerCase();
+  hits = index.filter((x) => !t || x.name.toLowerCase().includes(t) || x.where.toLowerCase().includes(t)).slice(0, 40);
+  sel = 0;
+  $("results").innerHTML = hits.length
+    ? hits.map((h, i) => `<button type="button" class="res" role="option" aria-selected="${i === sel}" data-i="${i}">${tile(h.g, h.c)}${esc(h.name)}<small>${esc(h.where)} · ${esc(h.type)}</small></button>`).join("")
+    : `<p class="empty">No field matches “${esc(q)}”.</p>`;
+}
+function pick(i) { const h = hits[i]; if (!h) return; closeSearch(); goTo(h.id, true); }
+$("open-search").addEventListener("click", openSearch);
+$("q").addEventListener("input", (e) => find(e.target.value));
+$("q").addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    sel = (sel + (e.key === "ArrowDown" ? 1 : -1) + hits.length) % Math.max(1, hits.length);
+    $("results").querySelectorAll(".res").forEach((r, i) => { r.setAttribute("aria-selected", String(i === sel)); if (i === sel) r.scrollIntoView({ block: "nearest" }); });
+  }
+  if (e.key === "Enter") pick(sel);
+});
+$("results").addEventListener("click", (e) => { const r = e.target.closest(".res"); if (r) pick(Number(r.dataset.i)); });
+$("search").addEventListener("click", (e) => { if (e.target === $("search")) closeSearch(); });
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); $("search").hidden ? openSearch() : closeSearch(); }
+  if (e.key === "Escape" && !$("search").hidden) closeSearch();
+  if (e.key === "/" && !e.target.matches("input") && $("search").hidden) { e.preventDefault(); openSearch(); }
+});
+
+/* ---------- Start ---------- */
+$("main").innerHTML = hero() + address() + headers() + body() + trip() + status() + response();
+renderRail();
+renderCurl();
+const io = "IntersectionObserver" in window ? new IntersectionObserver((entries) => entries.forEach((en) => { if (en.isIntersecting) { en.target.classList.add("in"); io.unobserve(en.target); } }), { threshold: 0.12 }) : null;
+document.querySelectorAll(".sec, .hero").forEach((el) => (io ? io.observe(el) : el.classList.add("in")));
+let raf = 0;
+addEventListener("scroll", () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(onScroll); }, { passive: true });
+addEventListener("resize", onScroll);
+(document.fonts ? document.fonts.ready : Promise.resolve()).then(onScroll);
+onScroll();
+</script>

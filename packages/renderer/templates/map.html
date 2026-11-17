@@ -1,0 +1,729 @@
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one assembled diagram on a pannable, zoomable dotted canvas.
+   URL keys on top; stems drop to parameter cards; the method feeds Headers and Body;
+   the body travels to the server node and comes back as Status and Response. */
+:root {
+  --canvas: #eef0f3; --grid: #e2e6eb; --paper: #ffffff; --sunken: #f5f7f9;
+  --ink: #12161c; --ink-2: #3a414c; --muted: #66707d; --faint: #a0a8b3; --line: #dfe3e8;
+  --path: #6e56cf; --query: #0b8a83; --header: #d9480f; --body: #2f6fde; --ok: #198754; --err: #d63939; --res: var(--ok);
+  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "DM Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --edge: 0 2px 0 var(--line);
+  --float: 0 18px 40px -18px rgb(10 14 20 / .28);
+  --ease: cubic-bezier(.22, .8, .24, 1);
+  --spring: cubic-bezier(.34, 1.5, .64, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --canvas: #0d1014; --grid: #161a20; --paper: #151920; --sunken: #11151a;
+    --ink: #e8ebef; --ink-2: #c0c6ce; --muted: #8a929d; --faint: #59616c; --line: #262b33;
+    --path: #9d8cff; --query: #2cc2b5; --header: #ff7a45; --body: #6aa1ff; --ok: #3ccb7f; --err: #ff6b6b;
+    --float: 0 18px 40px -18px rgb(0 0 0 / .7); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --canvas: #0d1014; --grid: #161a20; --paper: #151920; --sunken: #11151a;
+  --ink: #e8ebef; --ink-2: #c0c6ce; --muted: #8a929d; --faint: #59616c; --line: #262b33;
+  --path: #9d8cff; --query: #2cc2b5; --header: #ff7a45; --body: #6aa1ff; --ok: #3ccb7f; --err: #ff6b6b;
+  --float: 0 18px 40px -18px rgb(0 0 0 / .7); color-scheme: dark;
+}
+html, body { height: 100%; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--canvas); color: var(--ink); font: 14px/1.45 var(--font-sans); -webkit-font-smoothing: antialiased; overflow: hidden; }
+button, input { font: inherit; color: inherit; letter-spacing: inherit; }
+:focus-visible { outline: 2px solid var(--body); outline-offset: 2px; border-radius: 6px; }
+
+.tile { display: inline-grid; place-items: center; flex-shrink: 0; width: 1.3em; height: 1.3em; border-radius: .32em; color: var(--c); font-style: normal;
+  background: color-mix(in srgb, var(--c) 14%, var(--paper)); border: 1px solid color-mix(in srgb, var(--c) 34%, transparent); }
+.tile svg { width: 64%; height: 64%; }
+.key { --edge: color-mix(in srgb, var(--c, var(--ink)) 34%, var(--line)); display: inline-flex; align-items: center; gap: .4em; padding: .16em .55em .16em .26em; border: 0; border-radius: .42em;
+  color: var(--c, var(--ink)); white-space: nowrap; background: var(--paper); font: 500 18px var(--font-mono);
+  box-shadow: 0 0 0 1px var(--edge), 0 .17em 0 var(--edge); cursor: pointer; transition: transform .14s ease, box-shadow .14s ease, opacity .25s; }
+.key:hover { transform: translateY(-.06em); box-shadow: 0 0 0 1px var(--edge), 0 .23em 0 var(--edge); }
+.key:active { transform: translateY(.15em); box-shadow: 0 0 0 1px var(--edge), 0 .02em 0 var(--edge); }
+
+/* Viewport + world */
+.viewport { position: fixed; inset: 0; overflow: hidden; touch-action: none; cursor: grab;
+  background: linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 24px 24px, linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 24px 24px, var(--canvas); }
+.viewport.dragging { cursor: grabbing; }
+.world { position: absolute; left: 0; top: 0; transform-origin: 0 0; width: 1190px; padding: 30px 30px 40px; display: grid;
+  grid-template-columns: 260px 350px 96px 340px; grid-template-rows: auto auto auto; column-gap: 28px; row-gap: 30px; }
+.wires { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 0; }
+.wires path { fill: none; stroke-width: 2; stroke-linecap: round; transition: opacity .25s, stroke-width .2s; }
+.wires path.dash { stroke-dasharray: 2 6; }
+.wires .lbl { font: 600 11px var(--font-mono); transition: opacity .25s; }
+
+.keys { grid-column: 1 / -1; grid-row: 1; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 3px; z-index: 1; }
+.keys .plain { font: 500 18px var(--font-mono); color: var(--faint); padding: 0 1px; }
+.slots { grid-column: 1 / -1; grid-row: 2; position: relative; z-index: 1; }
+
+/* Cards */
+.card { position: relative; z-index: 1; background: var(--paper); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--edge); cursor: pointer; align-self: start;
+  transition: opacity .25s var(--ease), box-shadow .25s var(--ease), filter .25s; }
+.card-h { display: flex; align-items: center; gap: 8px; padding: 11px 13px 9px; }
+.card-h .tile { font-size: 15px; }
+.card-h b { font-weight: 600; font-size: 14px; letter-spacing: -.01em; }
+.card-h .n { font: 11.5px var(--font-mono); color: var(--faint); }
+.card-h .hint { margin-left: auto; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.card-b { padding: 0 8px 10px; }
+.card .more { display: none; }
+[hidden] { display: none !important; }
+.empty { margin: 2px 6px 4px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.empty code { font: 12px var(--font-mono); color: var(--ink-2); }
+.empty b { font: 500 12.5px var(--font-mono); color: var(--ink); }
+.listnote { margin: 0 6px 6px; color: var(--muted); font-size: 12.5px; }
+.card.compact .card-h b { font-size: 13.5px; }
+.card.solo { grid-column: 2; }
+.card.compact.solo { align-self: start; margin-top: 30px; }
+.raw { margin: 0 2px; font: 11.5px/1.6 var(--font-mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: auto; padding: 10px 12px; border-radius: 10px; background: var(--sunken); border: 1px solid var(--line); }
+.card-b.scroll { max-height: 520px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.card.open .card-b.scroll { max-height: 620px; }
+.grp > .f { cursor: pointer; }
+.grp.closed > .kids { display: none; }
+.grp.closed > .f .nm::after { transform: translateY(-1px) rotate(-45deg); }
+.chip.muted { color: var(--muted); }
+.card.open { z-index: 5; box-shadow: var(--edge), var(--float); cursor: default; }
+.card.open .more { display: block; }
+.card .x { display: none; margin-left: 6px; width: 22px; height: 22px; border: 1px solid var(--line); border-radius: 7px; background: var(--sunken); color: var(--muted); cursor: pointer; line-height: 1; }
+.card.open .x { display: grid; place-items: center; }
+
+.slot { position: absolute; top: 0; width: 200px; }
+.slot .card-b { display: grid; gap: 4px; padding: 0 13px 12px; }
+.slot .val { font: 500 13px var(--font-mono); color: var(--ink); overflow-wrap: anywhere; }
+.slot .meta { color: var(--muted); font-size: 11.5px; }
+
+.headers { grid-column: 1; grid-row: 3; }
+.body { grid-column: 2; grid-row: 3; }
+.server { grid-column: 3; grid-row: 3; align-self: start; justify-self: center; width: 150px; margin-top: 64px; display: grid; justify-items: center; gap: 8px; z-index: 1; cursor: pointer; }
+.server .tile { font-size: 52px; border-radius: 14px; border-width: 1.5px; transition: transform .4s var(--spring); }
+.server:hover .tile, .server.pulse .tile { transform: scale(1.08); }
+.server b { font: 500 12px/1.35 var(--font-mono); text-align: center; overflow-wrap: normal; word-break: normal; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+.server span { font-size: 11.5px; color: var(--muted); }
+.rcol { grid-column: 4; grid-row: 3; display: grid; gap: 26px; align-content: start; }
+.card.open { width: calc(100% + 370px); }
+.card.right.open { margin-left: -370px; }
+.slot.open { width: 300px; }
+
+.hrow { display: grid; gap: 1px; padding: 5px 6px; border-radius: 9px; }
+.hrow .hn { font: 500 12.5px var(--font-mono); color: var(--ink); }
+.hrow .hv { font: 12px var(--font-mono); color: var(--muted); overflow-wrap: anywhere; }
+.hrow .why { display: none; font-size: 12px; color: var(--ink-2); }
+.card.open .hrow .why { display: block; }
+.lock { display: inline-flex; margin-left: 6px; font: 10.5px var(--font-sans); color: var(--muted); padding: 0 6px; border-radius: 6px; border: 1px solid var(--line); }
+
+.verdict { display: flex; align-items: baseline; gap: 10px; padding: 0 14px 6px; }
+.verdict .code { font: 500 44px/1 var(--font-mono); letter-spacing: -.025em; color: var(--res); }
+.verdict .st { font-weight: 600; font-size: 15px; }
+.verdict-why { padding: 0 14px 10px; color: var(--muted); font-size: 12.5px; }
+.facts { display: flex; gap: 14px; padding: 0 14px 12px; color: var(--muted); font-size: 12px; }
+.facts b { font: 500 12.5px var(--font-mono); color: var(--ink); }
+
+/* Field tree */
+.f { display: grid; grid-template-columns: minmax(0, auto) minmax(0, auto) minmax(0, 1fr); align-items: baseline; gap: 8px; padding: 3px 6px; border-radius: 7px; min-height: 25px; }
+.f .nm { font: 500 12.5px var(--font-mono); white-space: nowrap; }
+.f .nm .opt { margin-left: 5px; font: 10.5px var(--font-sans); color: var(--faint); }
+.f .ty { font: 11.5px var(--font-mono); color: var(--faint); white-space: nowrap; }
+.f .ty b { font-weight: 400; color: var(--muted); }
+.f .ex { font: 11.5px var(--font-mono); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.f .ex.s { color: color-mix(in srgb, var(--ok) 80%, var(--ink)); }
+.f .ex.z { color: var(--faint); }
+.grp > .f .nm::after { content: ""; display: inline-block; width: 5px; height: 5px; margin-left: 6px; border-right: 1.5px solid var(--faint); border-bottom: 1.5px solid var(--faint); transform: translateY(-2px) rotate(45deg); }
+.kids { margin-left: 13px; padding-left: 8px; border-left: 1.5px solid var(--line); }
+.pill { font: 10.5px var(--font-sans); color: var(--muted); padding: 0 6px; border-radius: 6px; border: 1px solid var(--line); }
+.f, .hrow { --c: var(--body); }
+.f:hover, .hrow:hover { background: color-mix(in srgb, var(--c) 10%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 40%, transparent); }
+.response .f, .status .hrow { --c: var(--res); } .headers .hrow { --c: var(--header); }
+.f.match, .hrow.match { --c: var(--header); background: color-mix(in srgb, var(--c) 10%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 40%, transparent); }
+
+.card.open .split { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 12px; }
+.json { display: none; font: 11.5px/1.7 var(--font-mono); white-space: pre; border-radius: 12px; background: var(--sunken); border: 1px solid var(--line); padding: 10px 12px; overflow: auto; max-height: 560px; }
+.card.open .json { display: block; }
+.jk { color: var(--ink); } .js { color: color-mix(in srgb, var(--ok) 80%, var(--ink)); } .jn { color: var(--body); } .jb { color: var(--path); } .jz, .jp { color: var(--faint); }
+
+/* Focus */
+.world.focus .card:not(.hot), .world.focus .key:not(.hot), .world.focus .server:not(.hot) { opacity: .28; filter: saturate(.4); }
+.world.focus .wires path:not(.hot), .world.focus .wires .lbl:not(.hot) { opacity: .12; }
+.wires path.hot { stroke-width: 3; filter: drop-shadow(0 0 4px var(--glow)); }
+.world.searching .card:not(.has-match) { opacity: .3; }
+
+/* Chrome */
+.top { position: fixed; top: 14px; left: 16px; right: 16px; display: flex; align-items: center; gap: 10px; z-index: 10; pointer-events: none; }
+.top > * { pointer-events: auto; }
+.brand { display: inline-flex; align-items: center; gap: 9px; height: 36px; padding: 0 14px 0 12px; border-radius: 12px; background: var(--paper); border: 1px solid var(--line); box-shadow: var(--edge); font-weight: 600; font-size: 14.5px; letter-spacing: -.02em; }
+.brand-mark { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; width: 14px; height: 14px; }
+.brand-mark i { border-radius: 3px; }
+.top .sp { flex: 1; }
+.chip { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 12px; background: var(--paper); border: 1px solid var(--line); box-shadow: var(--edge); font-size: 13px; color: var(--muted); }
+.chip b { font: 500 12.5px var(--font-mono); color: var(--ink); }
+.chip .tile { font-size: 15px; }
+.bar { position: fixed; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 10; display: flex; align-items: center; gap: 6px; padding: 6px; border-radius: 14px;
+  background: var(--paper); border: 1px solid var(--line); box-shadow: var(--edge), var(--float); max-width: calc(100% - 24px); }
+.bar button { height: 34px; padding: 0 12px; border: 1px solid transparent; border-radius: 10px; background: none; color: var(--ink-2); font-size: 13.5px; cursor: pointer; white-space: nowrap; }
+.bar button:hover { background: var(--sunken); border-color: var(--line); color: var(--ink); }
+.bar button.ic { width: 34px; padding: 0; font-size: 17px; }
+.bar .zoom { font: 500 12px var(--font-mono); color: var(--muted); min-width: 44px; text-align: center; }
+.bar .sep { width: 1px; height: 20px; background: var(--line); margin: 0 2px; }
+.search { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 10px; border-radius: 10px; background: var(--sunken); border: 1px solid var(--line); }
+.search input { width: 150px; border: 0; outline: 0; background: none; font-size: 13.5px; }
+.search small { font: 11px var(--font-mono); color: var(--muted); white-space: nowrap; }
+.bar button.done { color: var(--ok); }
+
+/* Assembly */
+@media (prefers-reduced-motion: no-preference) {
+  .boot .keys .key { animation: drop .6s var(--spring) both; animation-delay: calc(var(--i) * 60ms); }
+  .boot .card, .boot .server { animation: slide .6s var(--ease) both; animation-delay: calc(var(--d) * 90ms + 500ms); }
+  .boot .wires path:not(.dash) { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw .7s var(--ease) forwards; animation-delay: calc(var(--d) * 90ms + 300ms); }
+  .boot .wires path.dash { animation: fade .6s var(--ease) both; animation-delay: calc(var(--d) * 90ms + 300ms); }
+  .boot .wires .lbl { animation: fade .4s var(--ease) both; animation-delay: 1.6s; }
+}
+@keyframes drop { from { opacity: 0; transform: translateY(-14px) scale(.85); } }
+@keyframes slide { from { opacity: 0; transform: translateY(-16px) scale(.97); } }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes fade { from { opacity: 0; } }
+
+/* Phone: a stacked reference, no canvas */
+@media (max-width: 760px) {
+  body { overflow: auto; }
+  .viewport { position: static; overflow: visible; cursor: auto; touch-action: auto; padding: 66px 12px 90px; min-height: 100%; }
+  .world { position: static; transform: none !important; width: auto; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); row-gap: 14px; }
+  .wires, .server { display: none; }
+  .keys, .slots, .headers, .body, .rcol { grid-column: 1; grid-row: auto; }
+  .keys .key, .keys .plain { font-size: 15px; }
+  .slots { display: grid; gap: 10px; }
+  .slot { position: static; width: auto; }
+  .card.right.open { margin-left: 0; }
+  .card.open .split { grid-template-columns: minmax(0, 1fr); }
+  .bar .zoom, .bar .ic, .bar .sep, #fit, #go-req, #go-res { display: none; }
+  .search input { width: 90px; }
+  .top .chip:not(.status-chip) { display: none; }
+}
+</style>
+
+<div class="top">
+  <span class="brand"><span class="brand-mark"><i style="background:var(--path)"></i><i style="background:var(--query)"></i><i style="background:var(--header)"></i><i style="background:var(--body)"></i></span>http-render</span>
+  <span class="sp"></span>
+  <span class="chip status-chip" id="status-chip"></span>
+  <span class="chip" id="time-chip"></span>
+</div>
+
+<div class="viewport" id="viewport">
+  <div class="world boot" id="world">
+    <svg class="wires" id="wires" aria-hidden="true"></svg>
+    <div class="keys" id="keys" aria-label="The URL"></div>
+    <div class="slots" id="slots"></div>
+  </div>
+</div>
+
+<div class="bar" role="toolbar" aria-label="Map controls">
+  <button type="button" class="ic" id="zout" aria-label="Zoom out">−</button>
+  <span class="zoom" id="zoom">100%</span>
+  <button type="button" class="ic" id="zin" aria-label="Zoom in">+</button>
+  <button type="button" id="fit">Fit</button>
+  <span class="sep"></span>
+  <button type="button" id="go-req">Request</button>
+  <button type="button" id="go-res">Response</button>
+  <span class="sep"></span>
+  <label class="search"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg><input id="q" placeholder="Find a field" aria-label="Find a field" spellcheck="false"><small id="qn"></small></label>
+  <button type="button" id="copy">Copy curl</button>
+</div>
+
+<script>
+const DOC = __DOC__;
+const req = DOC.request, res = DOC.response;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const phone = () => matchMedia("(max-width: 760px)").matches;
+
+const G = {
+  get: '<path d="M8 2.5v7.5M4.5 6.5 8 10l3.5-3.5M3 13.5h10"/>', post: '<path d="M8 3v10M3 8h10"/>', put: '<path d="M12.5 6A4.8 4.8 0 0 0 3.6 5M3.5 10a4.8 4.8 0 0 0 8.9 1M3.5 2.5V5H6M12.5 13.5V11H10"/>',
+  patch: '<path d="M3 13l.8-3L10.5 3.3l2.2 2.2L6 12.2z"/>', delete: '<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 8.5h5.6l.7-8.5"/>',
+  path: '<path d="M10.5 2.5 5.5 13.5"/>', query: '<path d="M5.8 6a2.2 2.2 0 1 1 3.2 2c-.7.4-1 .9-1 1.6M8 12.6v.01"/>', header: '<path d="M2.5 3.5h5l6 6-4 4-6-6z"/><circle cx="5.5" cy="6.5" r=".6"/>',
+  body: '<path d="M6 2.5c-1.6 0-2 .8-2 2v1.3c0 1-.6 2.2-1.6 2.2 1 0 1.6 1.2 1.6 2.2v1.3c0 1.2.4 2 2 2M10 2.5c1.6 0 2 .8 2 2v1.3c0 1 .6 2.2 1.6 2.2-1 0-1.6 1.2-1.6 2.2v1.3c0 1.2-.4 2-2 2"/>',
+  res: '<path d="M3.5 8.5l3 3 6-7"/>', err: '<path d="M8 3.5v5.5M8 12.3v.01"/>', host: '<circle cx="8" cy="8" r="5.5"/><path d="M2.5 8h11M8 2.5c2 2.2 2 8.8 0 11M8 2.5c-2 2.2-2 8.8 0 11"/>',
+  lock: '<rect x="3.5" y="7" width="9" height="6.5" rx="1.5"/><path d="M5.5 7V5.5a2.5 2.5 0 0 1 5 0V7"/>',
+};
+const tile = (g, c) => `<i class="tile" style="--c:${c}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${G[g]}</svg></i>`;
+const METHOD = { GET: ["get", "var(--ok)", "reads"], POST: ["post", "var(--body)", "creates"], PUT: ["put", "var(--header)", "replaces"], PATCH: ["patch", "var(--path)", "updates"], DELETE: ["delete", "var(--err)", "removes"] };
+const [mG, mC, mVerb] = METHOD[req.method] || ["post", "var(--muted)", "custom"];
+const bad = res && res.status >= 400;
+if (bad) document.documentElement.style.setProperty("--res", "var(--err)");
+const host = new URL(req.baseUrl).host;
+
+const WHY = {
+  "authorization": "Proves who you are. Never share it.", "content-type": "Tells the server the format of the body.", "accept": "Which formats you can read back.",
+  "idempotency-key": "Makes retries safe: the same key won't create twice.", "user-agent": "Names the client making the call.", "cookie": "Session data sent along.",
+  "x-api-key": "Your key for this API.", "location": "Where the newly created thing lives.", "x-request-id": "Quote this when asking the API team for help.",
+  "ratelimit-remaining": "Calls left before you're slowed down.", "cache-control": "How long this answer can be reused.", "etag": "A fingerprint of this version.",
+};
+const RES_WHY = { "content-type": "The format of this answer." };
+const STATUS = {
+  200: "It worked. Here's what you asked for.", 201: "It worked, and something new was created.", 204: "It worked. Nothing to send back.", 400: "The request didn't make sense to the server.",
+  401: "Sign in, or your token is wrong.", 403: "Signed in, but not allowed.", 404: "Nothing at this address.", 409: "It clashes with something that exists.", 422: "Understood, but some values are invalid.",
+  429: "Too many requests. Slow down.", 500: "Something broke on the server.", 503: "The server is busy or down.",
+};
+
+/* ---------- Field trees ---------- */
+function typeOf(s) {
+  let t = s.type === "array" ? (s.items?.type === "object" ? "object" : s.items?.type || "unknown") + "[]" : s.type;
+  if (s.nullable && s.type !== "null") t += " | null";
+  return esc(t) + (s.format ? ` · <b>${esc(s.format)}</b>` : "");
+}
+function exText(v, s) {
+  if (s?.redacted) return ["••••", ""];
+  if (v === undefined) return ["", "z"];
+  if (v === null) return ["null", "z"];
+  if (typeof v === "string") return [`"${v}"`, "s"];
+  if (Array.isArray(v)) return [JSON.stringify(v), ""];
+  return [String(v), ""];
+}
+function tree(schema, value, path) {
+  const fields = [...(schema?.fields || [])].sort((a, b) => Number(b.required) - Number(a.required));
+  return fields.map((f) => {
+    const p = path ? `${path}.${f.name}` : f.name;
+    const s = f.schema, v = value?.[f.name];
+    const name = `<span class="nm">${esc(f.name)}${f.required ? "" : '<span class="opt">optional</span>'}</span>`;
+    const inner = s.type === "object" ? s : s.type === "array" && s.items?.type === "object" ? s.items : null;
+    if (inner?.fields) {
+      const sample = Array.isArray(v) ? v[0] : v;
+      const pill = Array.isArray(v) ? plural(v.length, "item") : plural(inner.fields.length, "field");
+      return `<div class="grp${collapseGroups ? " closed" : ""}"><div class="f" data-s="${esc(p)}">${name}<span class="ty">${typeOf(s)}</span><span><span class="pill">${pill}</span></span></div><div class="kids">${tree(inner, sample, s.type === "array" ? p + "[]" : p)}</div></div>`;
+    }
+    const [t, cls] = exText(v, s);
+    return `<div class="f" data-s="${esc(p)} ${esc(t)}">${name}<span class="ty">${typeOf(s)}</span><span class="ex ${cls}" title="${esc(t)}">${esc(t)}</span></div>`;
+  }).join("");
+}
+function json(value) {
+  const out = [];
+  const walk = (v, ind, key, comma) => {
+    const pad = "  ".repeat(ind);
+    if (v && typeof v === "object") {
+      const arr = Array.isArray(v), entries = arr ? v.map((x) => [null, x]) : Object.entries(v);
+      out.push(`${pad}${key}<span class="jp">${arr ? "[" : "{"}</span>`);
+      entries.forEach(([k, x], i) => walk(x, ind + 1, k === null ? "" : `<span class="jk">"${esc(k)}"</span><span class="jp">: </span>`, i < entries.length - 1));
+      out.push(`${pad}<span class="jp">${arr ? "]" : "}"}</span>${comma ? "," : ""}`);
+    } else {
+      const cls = typeof v === "string" ? "js" : typeof v === "number" ? "jn" : typeof v === "boolean" ? "jb" : "jz";
+      out.push(`${pad}${key}<span class="${cls}">${esc(typeof v === "string" ? JSON.stringify(v) : String(v))}</span>${comma ? "," : ""}`);
+    }
+  };
+  walk(value, 0, "", false);
+  return out.join("\n");
+}
+const closeBtn = `<button type="button" class="x" aria-label="Close">×</button>`;
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+let collapseGroups = false;
+
+function countRows(schema) {
+  return (schema?.fields || []).reduce((n, f) => {
+    const s = f.schema, inner = s.type === "object" ? s : s.type === "array" && s.items?.type === "object" ? s.items : null;
+    return n + 1 + (inner ? countRows(inner) : 0);
+  }, 0);
+}
+
+/* Any body: object, list, scalar, text, binary or a file reference. */
+function bodyView(body, emptyText) {
+  if (!body) return { count: "", hint: "", html: `<p class="empty">${emptyText}</p>`, json: "", big: false };
+  const hint = esc((body.contentType || body.kind).split(";")[0]);
+  const s = body.schema;
+  if (s) {
+    let html, count, big = false;
+    if (s.type === "object" && s.fields) {
+      big = countRows(s) > 40;
+      collapseGroups = big;
+      html = tree(s, body.example, "");
+      count = s.fields.length;
+    } else if (s.type === "array" && s.items?.type === "object" && s.items.fields) {
+      const n = Array.isArray(body.example) ? body.example.length : 0;
+      big = countRows(s.items) > 40;
+      collapseGroups = big;
+      html = `<p class="listnote">A list of ${plural(n, "item")}. Each item has these fields:</p>${tree(s.items, Array.isArray(body.example) ? body.example[0] : undefined, "[]")}`;
+      count = plural(n, "item");
+    } else {
+      const [t, cls] = exText(body.example, s);
+      html = `<div class="f" data-s="value ${esc(t)}"><span class="nm">${s.type === "array" ? "items" : "value"}</span><span class="ty">${typeOf(s)}</span><span class="ex ${cls}">${esc(t)}</span></div>`;
+      count = 1;
+    }
+    collapseGroups = false;
+    return { count, hint, html, json: body.example !== undefined ? json(body.example) : "", big };
+  }
+  if (body.kind === "text") {
+    const raw = body.raw || "";
+    return { count: `${raw.length.toLocaleString()} chars`, hint, html: `<pre class="raw" data-s="${esc(raw.slice(0, 2000))}">${esc(raw.slice(0, 20000))}</pre>${body.truncated ? '<p class="meta">Cut short. The full body was larger.</p>' : ""}`, json: "", big: false };
+  }
+  const what = body.raw ? `Sent from the file <b>${esc(body.raw.replace(/^@/, ""))}</b>.` : `Binary content, ${body.size.toLocaleString()} bytes${body.contentType ? ` of ${esc(body.contentType.split(";")[0])}` : ""}.`;
+  return { count: "", hint, html: `<p class="empty">${what}</p>`, json: "", big: false };
+}
+
+function hostHtml(h) {
+  return esc(h).replace(/\./g, ".<wbr>");
+}
+
+/* ---------- Build ---------- */
+function build() {
+  const world = $("world");
+  let i = 0;
+  const key = (id, g, c, text) => `<button type="button" class="key" data-id="${esc(id)}" style="--c:${c};--i:${i++}">${tile(g, c)}${esc(text)}</button>`;
+  let keys = key("k-method", mG, mC, req.method) + key("k-host", "host", "var(--ink-2)", host);
+  for (const seg of req.pathTemplate.split("/").filter(Boolean)) {
+    const m = /^\{(\w+)\}$/.exec(seg);
+    keys += `<span class="plain">/</span>` + (m ? key(`k-path-${m[1]}`, "path", "var(--path)", m[1]) : `<span class="plain">${esc(seg)}</span>`);
+  }
+  req.query.forEach((q, n) => (keys += `<span class="plain">${n ? "&amp;" : "?"}</span>` + key(`k-query-${q.name}`, "query", "var(--query)", q.name)));
+  $("keys").innerHTML = keys;
+
+  let d = 0;
+  const slots = [
+    ...req.pathParams.map((p) => ({ kind: "path", name: p.name, value: p.value, type: p.format || p.type, where: "in the path · required" })),
+    ...req.query.map((q) => ({ kind: "query", name: q.name, value: q.redacted ? "••••" : q.value, type: q.type, where: "after the ? · optional" })),
+  ];
+  $("slots").innerHTML = slots.map((s) => `<div class="card slot" id="c-${s.kind}-${esc(s.name)}" data-key="k-${s.kind}-${esc(s.name)}" style="--d:${d++}">
+      <div class="card-h">${tile(s.kind, `var(--${s.kind})`)}<b>${esc(s.name)}</b><span class="hint">${esc(s.type)}</span>${closeBtn}</div>
+      <div class="card-b"><span class="val">${esc(s.value)}</span><span class="meta">${s.where}</span><span class="more meta">${s.kind === "path" ? `Replace {${esc(s.name)}} in the URL with this value.` : `Add ?${esc(s.name)}=… to the URL. Leave it out to use the default.`}</span></div></div>`).join("");
+
+  const headers = req.headers.map((h) => `<div class="hrow" data-s="${esc(h.name)} ${esc(h.value)}"><span class="hn">${esc(h.name)}</span><span class="hv">${esc(h.value)}${h.redacted ? '<span class="lock">hidden</span>' : ""}</span><span class="why">${esc(WHY[h.name.toLowerCase()] || "Sent along with the request.")}</span></div>`).join("");
+  const rb = bodyView(req.body, "");
+  const sb = res ? bodyView(res.body, "") : null;
+  const split = (v) => `<div class="card-b${v.big ? " scroll" : ""}"><div class="split"><div>${v.html}</div>${v.json ? `<div class="json">${v.json}</div>` : ""}</div></div>`;
+
+  let cards = "";
+  if (req.headers.length) {
+    cards += `<div class="card headers${req.body ? "" : " solo"}" id="c-headers" style="--d:${d++}"><div class="card-h">${tile("header", "var(--header)")}<b>Headers</b><span class="n">${req.headers.length}</span><span class="hint">ride along</span>${closeBtn}</div><div class="card-b">${headers}</div></div>`;
+  }
+  if (req.body) {
+    cards += `<div class="card body" id="c-body" style="--d:${d++}"><div class="card-h">${tile("body", "var(--body)")}<b>Body</b><span class="n">${rb.count}</span><span class="hint">${rb.hint}</span>${closeBtn}</div>${split(rb)}</div>`;
+  }
+  if (!req.headers.length && !req.body) {
+    cards += `<div class="card compact solo" id="c-empty" style="--d:${d++}"><div class="card-h">${tile(mG, mC)}<b>Nothing else to send</b>${closeBtn}</div><div class="card-b"><p class="empty">No headers and no body. The URL above is the whole request.</p></div></div>`;
+  }
+  cards += `<div class="server" id="c-server" style="--d:${d++}" title="Replay the round trip">${tile("host", "var(--ink-2)")}<b>${hostHtml(host)}</b><span>the server</span></div>`;
+
+  let status;
+  if (res) {
+    const noBody = !res.body && res.status !== 204 ? `<div class="verdict-why">The body was empty.</div>` : "";
+    status = `<div class="verdict"><span class="code">${res.status}</span><span class="st">${esc(res.statusText)}</span></div><div class="verdict-why">${esc(STATUS[res.status] || "The server answered.")}</div>${noBody}
+      <div class="facts">${res.timeMs != null ? `<span><b>${res.timeMs}</b> ms</span>` : ""}<span><b>${res.size.toLocaleString()}</b> bytes</span><span><b>${res.headers.length}</b> headers</span></div>
+      <div class="card-b more">${res.headers.map((h) => `<div class="hrow" data-s="${esc(h.name)} ${esc(h.value)}"><span class="hn">${esc(h.name)}</span><span class="hv">${esc(h.value)}</span><span class="why">${esc(RES_WHY[h.name.toLowerCase()] || WHY[h.name.toLowerCase()] || "Sent back with the answer.")}</span></div>`).join("")}</div>`;
+  } else {
+    status = `<div class="verdict-why">No response yet. Send the request, or pass a sample with <code>--response</code>, to see what comes back.</div>`;
+  }
+  cards += `<div class="rcol"><div class="card status right${res ? "" : " compact"}" id="c-status" style="--d:${d++}"><div class="card-h">${tile(res ? (bad ? "err" : "res") : "host", res ? "var(--res)" : "var(--muted)")}<b>${res ? "Status" : "No response"}</b><span class="hint">${res ? (DOC.meta.executed ? "live call" : "sample") : ""}</span>${closeBtn}</div>${status}</div>`;
+  if (res?.body) {
+    cards += `<div class="card response right" id="c-response" style="--d:${d++}"><div class="card-h">${tile("body", "var(--res)")}<b>Response</b><span class="n">${sb.count}</span><span class="hint">${sb.hint}</span>${closeBtn}</div>${split(sb)}</div>`;
+  }
+  cards += `</div>`;
+  world.insertAdjacentHTML("beforeend", cards);
+
+  $("status-chip").innerHTML = res ? `${tile(bad ? "err" : "res", "var(--res)")}<b>${res.status} ${esc(res.statusText)}</b>` : "No response";
+  $("time-chip").innerHTML = res ? `${res.timeMs != null ? `<b>${res.timeMs}</b> ms ·` : ""} <b>${res.size}</b> B` : "";
+  $("time-chip").hidden = !res;
+  if (!res) $("status-chip").classList.add("muted");
+}
+
+/* Place parameter cards under their keys without overlapping. */
+function placeSlots() {
+  if (phone()) return;
+  const k = scale;
+  const world = $("world").getBoundingClientRect(), slots = $("slots");
+  const slotsLeft = (slots.getBoundingClientRect().left - world.left) / k;
+  let right = -Infinity, h = 0;
+  slots.querySelectorAll(".slot").forEach((c) => {
+    const key = document.querySelector(`[data-id="${CSS.escape(c.dataset.key)}"]`);
+    const kr = key.getBoundingClientRect();
+    const center = (kr.left + kr.width / 2 - world.left) / k - slotsLeft;
+    const x = Math.max(center - 100, right + 14, 0);
+    c.style.left = `${x}px`;
+    right = x + 200;
+    h = Math.max(h, c.offsetHeight);
+  });
+  const width = slots.offsetWidth, cards = [...slots.querySelectorAll(".slot")];
+  let limit = width;
+  for (const c of cards.reverse()) {
+    const x = parseFloat(c.style.left);
+    if (x + 200 > limit) c.style.left = `${limit - 200}px`;
+    limit = parseFloat(c.style.left) - 14;
+  }
+  slots.style.height = `${h}px`;
+}
+
+/* ---------- Wires ---------- */
+const links = [];
+function drawWires() {
+  if (phone()) return;
+  const k = scale, w = $("world").getBoundingClientRect();
+  const R = (el) => { const r = el.getBoundingClientRect(); return { l: (r.left - w.left) / k, r: (r.right - w.left) / k, t: (r.top - w.top) / k, b: (r.bottom - w.top) / k, cx: (r.left + r.width / 2 - w.left) / k, cy: (r.top + r.height / 2 - w.top) / k }; };
+  const down = (a, b) => { const m = (a.y + b.y) / 2; return `M${a.x},${a.y} C${a.x},${m} ${b.x},${m} ${b.x},${b.y}`; };
+  const side = (a, b) => { const m = (a.x + b.x) / 2; return `M${a.x},${a.y} C${m},${a.y} ${m},${b.y} ${b.x},${b.y}`; };
+  links.length = 0;
+  let html = `<defs>${["m", "r", "i"].map((n) => `<marker id="ar-${n}" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="${n === "m" ? mC : n === "r" ? "var(--res)" : "var(--ink-2)"}"/></marker>`).join("")}</defs>`;
+  let d = 0;
+  const add = (a, b, dPath, color, opts = {}) => {
+    links.push({ a, b });
+    html += `<path d="${dPath}" stroke="${color}" data-a="${esc(a)}" data-b="${esc(b)}" class="${opts.dash ? "dash" : ""}" ${opts.dash ? "" : 'pathLength="1"'} style="--glow:${color};--d:${d++}" ${opts.arrow ? `marker-end="url(#ar-${opts.arrow})"` : ""}/>`;
+    if (opts.label) html += `<text class="lbl" data-a="${esc(a)}" data-b="${esc(b)}" x="${opts.label[0]}" y="${opts.label[1]}" fill="${color}" text-anchor="middle">${esc(opts.label[2])}</text>`;
+  };
+  document.querySelectorAll(".slot").forEach((c) => {
+    const kr = R(document.querySelector(`[data-id="${CSS.escape(c.dataset.key)}"]`)), cr = R(c);
+    add(c.dataset.key, c.id, down({ x: kr.cx, y: kr.b + 4 }, { x: cr.cx, y: cr.t }), c.id.startsWith("c-path") ? "var(--path)" : "var(--query)");
+  });
+  const km = R(document.querySelector('[data-id="k-method"]'));
+  const sv = R($("c-server").querySelector(".tile")), st = R($("c-status"));
+  const sources = ["c-headers", "c-body", "c-empty"].filter((id) => $(id));
+  sources.forEach((id, n) => {
+    const c = R($(id));
+    add("k-method", id, down({ x: km.cx + (n ? 10 : -10), y: km.b + 4 }, { x: c.l + 40 + n * 20, y: c.t }), mC, { dash: true });
+  });
+  const out = outId();
+  const oc = R($(out));
+  const outY = Math.min(Math.max(sv.cy - 8, oc.t + 22), oc.b - 16);
+  add(out, "c-server", side({ x: oc.r, y: outY }, { x: sv.l - 4, y: sv.cy - 8 }), mC, { arrow: "m", label: [(oc.r + sv.l) / 2, Math.min(outY, sv.cy - 8) - 10, req.method] });
+  const sy = Math.min(st.b - 18, st.t + 60);
+  add("c-server", "c-status", side({ x: sv.r + 4, y: sv.cy + 8 }, { x: st.l, y: sy }), res ? "var(--res)" : "var(--faint)", { arrow: res ? "r" : "i", dash: !res });
+  if ($("c-response")) {
+    const rp = R($("c-response"));
+    add("c-status", "c-response", down({ x: st.l + 50, y: st.b }, { x: rp.l + 50, y: rp.t }), "var(--res)", { arrow: "r" });
+  }
+  $("wires").innerHTML = html;
+}
+
+function outId() {
+  return $("c-body") ? "c-body" : $("c-headers") ? "c-headers" : "c-empty";
+}
+
+/* ---------- Pan & zoom ---------- */
+let scale = 1, tx = 0, ty = 0;
+const MIN = 0.35, MAX = 2;
+function apply(animate) {
+  const world = $("world");
+  if (phone()) { world.style.transform = ""; return; }
+  world.style.transition = animate && !reduce ? "transform .45s cubic-bezier(.22,.8,.24,1)" : "";
+  world.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+  $("zoom").textContent = `${Math.round(scale * 100)}%`;
+}
+function zoomAt(next, cx, cy, animate) {
+  next = Math.min(MAX, Math.max(MIN, next));
+  tx = cx - ((cx - tx) * next) / scale;
+  ty = cy - ((cy - ty) * next) / scale;
+  scale = next;
+  apply(animate);
+}
+const worldSize = () => ({ w: $("world").offsetWidth, h: $("world").offsetHeight });
+function frame(x, y, w, h, animate = true) {
+  const top = 64, bottom = 76, vw = innerWidth, vh = innerHeight - top - bottom;
+  scale = Math.min(1, vw / (w + 60), vh / (h + 20));
+  scale = Math.max(scale, Math.min(0.86, vw / (w + 60)));
+  tx = (vw - w * scale) / 2 - x * scale;
+  ty = top + Math.max(0, (vh - h * scale) / 2) - y * scale;
+  apply(animate);
+}
+function fit(animate = true) { const { w, h } = worldSize(); frame(0, 0, w, h, animate); }
+function focusRegion(ids) {
+  const k = scale, w = $("world").getBoundingClientRect();
+  let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+  ids.forEach((id) => { const e = $(id); if (!e) return; const q = e.getBoundingClientRect(); l = Math.min(l, (q.left - w.left) / k); t = Math.min(t, (q.top - w.top) / k); r = Math.max(r, (q.right - w.left) / k); b = Math.max(b, (q.bottom - w.top) / k); });
+  frame(l - 10, t - 10, r - l + 20, b - t + 20);
+}
+
+const vp = $("viewport");
+const pointers = new Map();
+let drag = null, pinch = null, moved = false;
+vp.addEventListener("pointerdown", (e) => {
+  if (phone() || e.target.closest("button, input, .json, .raw, .card-b.scroll")) return;
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  moved = false;
+  if (pointers.size === 1) drag = { x: e.clientX, y: e.clientY, tx, ty };
+  if (pointers.size === 2) { const [a, b] = [...pointers.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), s: scale }; }
+});
+vp.addEventListener("pointermove", (e) => {
+  if (!pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pointers.size === 2 && pinch) {
+    const [a, b] = [...pointers.values()];
+    zoomAt(pinch.s * (Math.hypot(a.x - b.x, a.y - b.y) / pinch.d), (a.x + b.x) / 2, (a.y + b.y) / 2);
+    moved = true;
+  } else if (drag) {
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (!moved && Math.abs(dx) + Math.abs(dy) > 4) { moved = true; vp.classList.add("dragging"); vp.setPointerCapture(e.pointerId); }
+    if (moved) { tx = drag.tx + dx; ty = drag.ty + dy; apply(); }
+  }
+});
+const end = (e) => { pointers.delete(e.pointerId); if (pointers.size < 2) pinch = null; if (!pointers.size) { drag = null; vp.classList.remove("dragging"); } };
+vp.addEventListener("pointerup", end);
+vp.addEventListener("pointercancel", end);
+vp.addEventListener("wheel", (e) => {
+  if (phone()) return;
+  if (!e.ctrlKey && !e.metaKey && e.target.closest(".json, .raw, .card-b.scroll")) return;
+  e.preventDefault();
+  if (e.ctrlKey || e.metaKey) zoomAt(scale * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
+  else { tx -= e.deltaX; ty -= e.deltaY; apply(); }
+}, { passive: false });
+$("zin").addEventListener("click", () => zoomAt(scale * 1.2, innerWidth / 2, innerHeight / 2, true));
+$("zout").addEventListener("click", () => zoomAt(scale / 1.2, innerWidth / 2, innerHeight / 2, true));
+$("fit").addEventListener("click", () => fit());
+$("go-req").addEventListener("click", () => { collapse(); focusRegion(["keys", "slots", "c-headers", "c-body"]); });
+$("go-res").addEventListener("click", () => { collapse(); focusRegion(["c-status", "c-response"]); });
+
+/* ---------- Focus, expand ---------- */
+function related(id) {
+  const set = new Set([id]);
+  links.forEach((l) => { if (l.a === id) set.add(l.b); if (l.b === id) set.add(l.a); });
+  return set;
+}
+function setFocus(id) {
+  const world = $("world");
+  document.querySelectorAll(".hot").forEach((e) => e.classList.remove("hot"));
+  if (!id) return world.classList.remove("focus");
+  const set = related(id);
+  world.classList.add("focus");
+  set.forEach((x) => document.querySelector(`#${CSS.escape(x)}, [data-id="${CSS.escape(x)}"]`)?.classList.add("hot"));
+  document.querySelectorAll(".wires [data-a]").forEach((p) => { if (p.dataset.a === id || p.dataset.b === id) p.classList.add("hot"); });
+}
+let open = null;
+$("world").addEventListener("pointerover", (e) => {
+  if (open || pointers.size) return;
+  const t = e.target.closest(".card, .key, .server");
+  setFocus(t ? t.id || t.dataset.id : null);
+});
+$("world").addEventListener("pointerleave", () => !open && setFocus(null));
+
+function flip(card, change) {
+  const a = card.getBoundingClientRect();
+  change();
+  const b = card.getBoundingClientRect();
+  if (reduce) return redrawSoon();
+  const anim = card.animate([{ width: `${a.width / scale}px`, height: `${a.height / scale}px` }, { width: `${b.width / scale}px`, height: `${b.height / scale}px` }], { duration: 380, easing: "cubic-bezier(.22,.8,.24,1)" });
+  card.style.overflow = "hidden";
+  const tick = () => { drawWires(); if (anim.playState === "running") requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+  anim.finished.then(() => { card.style.overflow = ""; drawWires(); });
+}
+function expand(card) {
+  if (open === card) return;
+  collapse();
+  open = card;
+  setFocus(card.id);
+  flip(card, () => card.classList.add("open"));
+}
+function collapse() {
+  if (!open) return;
+  const c = open;
+  open = null;
+  flip(c, () => c.classList.remove("open"));
+  setFocus(null);
+}
+$("world").addEventListener("click", (e) => {
+  if (moved) return;
+  if (e.target.closest(".x")) return collapse();
+  const key = e.target.closest(".key");
+  if (key) {
+    const target = key.dataset.id === "k-method" ? $(outId()) : key.dataset.id === "k-host" ? $("c-status") : document.querySelector(`[data-key="${CSS.escape(key.dataset.id)}"]`);
+    if (target) expand(target);
+    return;
+  }
+  if (e.target.closest(".server")) return playTrip();
+  const groupHead = e.target.closest(".grp > .f");
+  if (groupHead) {
+    groupHead.parentElement.classList.toggle("closed");
+    redrawSoon();
+    return;
+  }
+  const card = e.target.closest(".card");
+  if (card) expand(card);
+  else collapse();
+});
+addEventListener("keydown", (e) => {
+  if (e.key === "Escape") collapse();
+  if (e.key === "/" && document.activeElement !== $("q")) { e.preventDefault(); $("q").focus(); }
+});
+
+/* ---------- Round-trip packets ---------- */
+function travel(a, b, color, delay) {
+  return new Promise((done) => {
+    const p = $("wires").querySelector(`path[data-a="${CSS.escape(a)}"][data-b="${CSS.escape(b)}"]`);
+    if (!p || reduce || phone()) return done();
+    setTimeout(() => {
+      const len = p.getTotalLength();
+      const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      dot.setAttribute("r", "5");
+      dot.setAttribute("fill", color);
+      dot.style.filter = `drop-shadow(0 0 6px ${color})`;
+      $("wires").appendChild(dot);
+      const t0 = performance.now();
+      const step = (now) => {
+        const t = Math.min(1, (now - t0) / 750), e = t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        const pt = p.getPointAtLength(e * len);
+        dot.setAttribute("cx", pt.x); dot.setAttribute("cy", pt.y);
+        if (t < 1) requestAnimationFrame(step); else { dot.remove(); done(); }
+      };
+      requestAnimationFrame(step);
+    }, delay);
+  });
+}
+async function playTrip() {
+  await travel(outId(), "c-server", mC, 0);
+  $("c-server").classList.add("pulse");
+  setTimeout(() => $("c-server").classList.remove("pulse"), 350);
+  if (res) { await travel("c-server", "c-status", "var(--res)", 120); if ($("c-response")) await travel("c-status", "c-response", "var(--res)", 0); }
+}
+
+/* ---------- Search ---------- */
+function search(q) {
+  const world = $("world");
+  document.querySelectorAll(".match, .has-match").forEach((e) => e.classList.remove("match", "has-match"));
+  q = q.trim().toLowerCase();
+  if (!q) { world.classList.remove("searching"); $("qn").textContent = ""; return []; }
+  const hits = [...document.querySelectorAll("[data-s]")].filter((f) => !f.closest(".more") || f.closest(".open")).filter((f) => f.dataset.s.toLowerCase().includes(q));
+  hits.forEach((f) => {
+    f.classList.add("match");
+    f.closest(".card")?.classList.add("has-match");
+    for (let g = f.parentElement?.closest(".grp.closed"); g; g = g.parentElement?.closest(".grp.closed")) g.classList.remove("closed");
+  });
+  world.classList.add("searching");
+  $("qn").textContent = hits.length ? `${hits.length}` : "none";
+  return hits;
+}
+let hitIndex = 0;
+$("q").addEventListener("input", (e) => { hitIndex = 0; search(e.target.value); });
+$("q").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { e.target.value = ""; search(""); e.target.blur(); }
+  if (e.key !== "Enter") return;
+  const hits = search(e.target.value);
+  if (!hits.length) return;
+  const hit = hits[hitIndex++ % hits.length];
+  if (phone()) return hit.scrollIntoView({ behavior: "smooth", block: "center" });
+  const box = hit.closest(".card-b.scroll");
+  if (box) box.scrollTop += (hit.getBoundingClientRect().top - box.getBoundingClientRect().top) / scale - 60;
+  const w = $("world").getBoundingClientRect(), r = hit.getBoundingClientRect();
+  const x = (r.left - w.left) / scale, y = (r.top - w.top) / scale;
+  scale = 1.15;
+  tx = innerWidth / 2 - (x + 120) * scale;
+  ty = innerHeight / 2 - y * scale;
+  apply(true);
+});
+
+/* ---------- Copy ---------- */
+$("copy").addEventListener("click", async (e) => {
+  const b = e.currentTarget;
+  try { await navigator.clipboard.writeText(req.curl); b.textContent = "Copied"; b.classList.add("done"); }
+  catch { b.textContent = "Copy blocked"; }
+  setTimeout(() => { b.textContent = "Copy curl"; b.classList.remove("done"); }, 1400);
+});
+
+/* ---------- Start ---------- */
+let redrawTimer = 0;
+function redrawSoon() { cancelAnimationFrame(redrawTimer); redrawTimer = requestAnimationFrame(() => { placeSlots(); drawWires(); }); }
+build();
+const start = () => {
+  apply();
+  placeSlots();
+  fit(false);
+  drawWires();
+  setTimeout(() => $("world").classList.remove("boot"), 2600);
+  if (!reduce) setTimeout(playTrip, 2000);
+};
+(document.fonts ? document.fonts.ready : Promise.resolve()).then(start);
+addEventListener("resize", () => { apply(); redrawSoon(); if (!phone()) fit(false); });
+</script>

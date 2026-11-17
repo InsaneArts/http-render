@@ -1,0 +1,640 @@
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: a centered 1180px window. Left: an outline of everything. Middle: the selected
+   item explained. Right: JSON and curl, kept in sync. Color always means where a value goes. */
+:root {
+  --canvas: #eef0f3; --grid: #e2e6eb; --paper: #ffffff; --sunken: #f5f7f9;
+  --ink: #12161c; --ink-2: #3a414c; --muted: #66707d; --faint: #a0a8b3; --line: #dfe3e8;
+  --path: #6e56cf; --query: #0b8a83; --header: #d9480f; --body: #2f6fde; --ok: #198754; --err: #d63939; --res: var(--ok);
+  --term: #12161c; --term-ink: #d6dbe1;
+  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "DM Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --float: 0 18px 40px -18px rgb(10 14 20 / .28);
+  --ease: cubic-bezier(.22, .8, .24, 1);
+  --spring: cubic-bezier(.34, 1.45, .64, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --canvas: #0d1014; --grid: #161a20; --paper: #151920; --sunken: #11151a;
+    --ink: #e8ebef; --ink-2: #c0c6ce; --muted: #8a929d; --faint: #59616c; --line: #262b33;
+    --path: #9d8cff; --query: #2cc2b5; --header: #ff7a45; --body: #6aa1ff; --ok: #3ccb7f; --err: #ff6b6b;
+    --term: #0a0d10; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --canvas: #0d1014; --grid: #161a20; --paper: #151920; --sunken: #11151a;
+  --ink: #e8ebef; --ink-2: #c0c6ce; --muted: #8a929d; --faint: #59616c; --line: #262b33;
+  --path: #9d8cff; --query: #2cc2b5; --header: #ff7a45; --body: #6aa1ff; --ok: #3ccb7f; --err: #ff6b6b;
+  --term: #0a0d10; color-scheme: dark;
+}
+html, body { height: 100%; }
+* { box-sizing: border-box; }
+body { margin: 0; color: var(--ink); font: 14px/1.5 var(--font-sans); -webkit-font-smoothing: antialiased; background-color: var(--canvas);
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px); background-size: 24px 24px; }
+button, input { font: inherit; color: inherit; letter-spacing: inherit; }
+:focus-visible { outline: 2px solid var(--body); outline-offset: 2px; border-radius: 6px; }
+
+.tile { display: inline-grid; place-items: center; flex-shrink: 0; width: 1.3em; height: 1.3em; border-radius: .32em; color: var(--c); font-style: normal;
+  background: color-mix(in srgb, var(--c) 14%, var(--paper)); border: 1px solid color-mix(in srgb, var(--c) 34%, transparent); }
+.tile svg { width: 64%; height: 64%; }
+.key { --edge: color-mix(in srgb, var(--c, var(--ink)) 30%, var(--line)); display: inline-flex; align-items: center; gap: .4em; padding: .14em .52em .14em .24em; border: 0; border-radius: .42em;
+  color: var(--c, var(--ink)); white-space: nowrap; background: var(--paper); font-weight: 600; box-shadow: 0 0 0 1px var(--edge), 0 .16em 0 var(--edge);
+  transition: transform .14s ease, box-shadow .14s ease; cursor: pointer; }
+.key:hover { transform: translateY(-.06em); box-shadow: 0 0 0 1px var(--edge), 0 .22em 0 var(--edge); }
+.key:active { transform: translateY(.14em); box-shadow: 0 0 0 1px var(--edge), 0 .02em 0 var(--edge); }
+.key.sel { background: color-mix(in srgb, var(--c) 10%, var(--paper)); }
+
+.app { height: 100%; min-height: 640px; max-width: 1180px; margin: 0 auto; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 14px;
+  padding: 18px max(20px, env(safe-area-inset-right)) 18px max(20px, env(safe-area-inset-left)); }
+
+/* Top */
+.top { display: flex; align-items: center; gap: 12px; }
+.brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 600; letter-spacing: -.02em; margin-right: auto; }
+.brand-mark { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; width: 15px; height: 15px; }
+.brand-mark i { border-radius: 3px; }
+.facts { display: flex; align-items: center; gap: 14px; font-size: 13px; color: var(--muted); }
+.facts b { font: 500 13px var(--font-mono); color: var(--ink); }
+.btn { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px; border-radius: 10px; background: var(--paper); border: 1px solid var(--line); box-shadow: 0 2px 0 var(--line); font-size: 13px; color: var(--ink-2); cursor: pointer; }
+.btn:hover { color: var(--ink); }
+.btn.done { color: var(--ok); }
+
+.keys { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 3px; font: 16px var(--font-mono); }
+.keys .plain { color: var(--faint); padding: 0 1px; }
+
+/* Columns */
+.cols { display: grid; grid-template-columns: 270px minmax(0, 1fr) 360px; gap: 14px; min-height: 0; }
+.col { min-height: 0; border-radius: 14px; background: var(--paper); border: 1px solid var(--line); box-shadow: 0 2px 0 var(--line); overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+
+/* Outline */
+.search { display: flex; align-items: center; gap: 8px; margin: 12px; padding: 0 10px; height: 36px; border-radius: 10px; background: var(--sunken); border: 1px solid var(--line); color: var(--faint); }
+.search svg { width: 15px; height: 15px; flex-shrink: 0; }
+.search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font-size: 13.5px; color: var(--ink); }
+.search kbd { font: 11px var(--font-mono); padding: 0 6px; border-radius: 5px; background: var(--paper); border: 1px solid var(--line); box-shadow: 0 1px 0 var(--line); }
+.outline { position: relative; overflow: auto; padding: 0 8px 14px; scrollbar-width: thin; }
+.og { margin-top: 6px; }
+.og-h { display: flex; align-items: center; gap: 8px; padding: 8px 8px 4px; font: 500 11px var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--faint); }
+.og-h .n { margin-left: auto; letter-spacing: 0; }
+.row { position: relative; z-index: 1; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 30px; padding: 3px 8px 3px calc(8px + var(--depth, 0) * 14px); border: 0; border-radius: 10px; background: none; text-align: left; cursor: pointer; color: var(--ink-2); }
+.row:hover { background: color-mix(in srgb, var(--c) 10%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 40%, transparent); }
+.row .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--c); }
+.row .dot.opt { background: none; box-shadow: inset 0 0 0 1.5px var(--c); }
+.row .nm { font: 500 13px var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+.row .ty { margin-left: auto; font: 11.5px var(--font-mono); color: var(--faint); white-space: nowrap; }
+.row .tw { width: 14px; height: 14px; display: grid; place-items: center; margin-left: -4px; color: var(--faint); flex-shrink: 0; transition: transform .25s var(--spring); }
+.row .tw svg { width: 10px; height: 10px; }
+.row.closed .tw { transform: rotate(-90deg); }
+.row.sel .nm { color: var(--c); }
+.row[hidden] { display: none; }
+.cursor { position: absolute; left: 8px; right: 8px; z-index: 0; border-radius: 10px; pointer-events: none; opacity: 0;
+  background: color-mix(in srgb, var(--c, var(--body)) 10%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c, var(--body)) 40%, transparent);
+  transition: top .38s var(--spring), height .3s var(--ease), opacity .2s, background-color .3s; }
+.empty-search { padding: 18px 12px; color: var(--muted); font-size: 13px; }
+
+/* Detail */
+.detail { position: relative; overflow: auto; }
+.pane { min-width: 0; padding: 26px 28px 30px; display: grid; gap: 20px; align-content: start; max-width: 620px; }
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font: 12px var(--font-mono); color: var(--faint); }
+.crumbs b { color: var(--muted); font-weight: 500; }
+.hero-key { font-size: 26px; justify-self: start; }
+.where { display: inline-flex; align-items: center; gap: 8px; justify-self: start; padding: 4px 12px 4px 5px; border-radius: 10px; font-size: 13px; font-weight: 500; color: var(--c);
+  background: color-mix(in srgb, var(--c) 8%, var(--paper)); border: 1px solid color-mix(in srgb, var(--c) 30%, transparent); }
+.where .tile { font-size: 17px; }
+.note { margin: 0; font-size: 15px; line-height: 1.55; color: var(--ink-2); max-width: 52ch; text-wrap: pretty; }
+.factgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.fact { display: grid; gap: 3px; padding: 12px 14px; border-radius: 12px; background: var(--sunken); border: 1px solid var(--line); min-width: 0; }
+.fact span { font: 500 11px var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--faint); }
+.fact b { font: 500 14px var(--font-mono); color: var(--ink); overflow-wrap: anywhere; }
+.fact.wide { grid-column: 1 / -1; }
+.fact b.yes { color: var(--ok); } .fact b.no { color: var(--muted); }
+.snip { display: grid; gap: 6px; }
+.snip > span { font: 500 11px var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--faint); }
+.snip code { display: block; padding: 10px 12px; border-radius: 12px; background: var(--term); border: 1px solid var(--line); color: var(--term-ink); font: 12.5px/1.6 var(--font-mono); overflow-wrap: anywhere; letter-spacing: 0; }
+.snip code mark { color: #fff; background: color-mix(in srgb, var(--c) 45%, transparent); border-radius: 4px; padding: 0 2px; }
+.kids { display: flex; flex-wrap: wrap; gap: 8px; }
+.kids .key { font-size: 13px; font-family: var(--font-mono); }
+.stagger > * { animation: rise .45s var(--ease) both; animation-delay: calc(var(--i, 0) * 45ms); }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+.pane.enter .hero-key { animation: pop .5s var(--spring) both; }
+@keyframes pop { from { opacity: 0; transform: scale(.8) translateY(-6px); } }
+
+/* Overview */
+.ov-h { overflow-wrap: anywhere; margin: 0; font-size: 22px; letter-spacing: -.022em; font-weight: 600; }
+.ov-p { margin: 0; color: var(--muted); max-width: 52ch; }
+.anatomy { --k: 17px; display: flex; align-items: flex-start; flex-wrap: wrap; row-gap: 16px; font: var(--k) var(--font-mono); }
+.anatomy .plain { color: var(--faint); padding: .22em .05em 0; min-width: 0; }
+.anatomy .plain.tail { flex: 1 1 12ch; overflow-wrap: anywhere; }
+.keys .plain.tail { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.rawtext { margin: 0; padding: 0 16px; white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.7 var(--font-mono); color: var(--ink-2); }
+.blob { margin: 4px 16px; padding: 14px; border-radius: 12px; border: 1px dashed var(--line); color: var(--muted); font-size: 13px; }
+.part { display: grid; justify-items: start; margin: 0 .08em; }
+.part .key { animation: drop .55s var(--spring) both; animation-delay: calc(var(--i) * 60ms); }
+.stem { width: 2px; height: 14px; margin: 6px 0 0 calc(var(--k) * .9); border-radius: 2px; background: linear-gradient(var(--c), color-mix(in srgb, var(--c) 25%, transparent)); transform-origin: top; animation: grow .4s var(--ease) both; animation-delay: calc(var(--i) * 60ms + 220ms); }
+.part.long .stem { height: 40px; }
+.lbl { width: 0; white-space: nowrap; display: grid; margin-left: calc(var(--k) * .9 - 3.5px); padding-top: 4px; font: 12px/1.35 var(--font-sans); color: var(--muted); animation: rise .4s var(--ease) both; animation-delay: calc(var(--i) * 60ms + 330ms); }
+.lbl::before { content: ""; width: 9px; height: 9px; margin: -9px 0 4px; border-radius: 50%; background: var(--paper); box-shadow: inset 0 0 0 2px var(--c); }
+.lbl b { color: var(--c); font-weight: 600; }
+@keyframes drop { from { opacity: 0; transform: translateY(-10px) scale(.85); } }
+@keyframes grow { from { transform: scaleY(0); } }
+.sums { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
+.sum { display: grid; align-content: start; gap: 10px; padding: 16px; border-radius: 12px; background: var(--sunken); border: 1px solid var(--line); box-shadow: 0 2px 0 var(--line); }
+.sum h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.sum ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.sum li { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.sum li .tile { font-size: 15px; }
+.sum li b { margin-left: auto; font: 500 13px var(--font-mono); color: var(--ink); }
+.sum.res .big { font: 500 34px/1 var(--font-mono); letter-spacing: -.02em; color: var(--res); }
+.tip { color: var(--faint); font-size: 12.5px; }
+.tip kbd { font: 11px var(--font-mono); padding: 0 5px; border-radius: 5px; background: var(--paper); border: 1px solid var(--line); box-shadow: 0 1px 0 var(--line); color: var(--muted); }
+
+/* Right: code */
+.tabs { display: flex; gap: 4px; padding: 10px 10px 0; }
+.tab { border: 1px solid transparent; background: none; padding: 6px 12px; border-radius: 10px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.tab[aria-selected="true"] { background: var(--paper); color: var(--ink); border-color: var(--line); box-shadow: 0 2px 0 var(--line); }
+.tab .tile { font-size: 13px; margin-right: 4px; vertical-align: -2px; }
+.code { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; }
+.json { overflow: auto; padding: 10px 0 14px; font: 12.5px/1.75 var(--font-mono); letter-spacing: 0; scrollbar-width: thin; }
+.jl { padding: 0 16px; white-space: pre; cursor: pointer; transition: background-color .15s; }
+.jl:hover { background: color-mix(in srgb, var(--c, var(--body)) 6%, transparent); }
+.jl.sel { background: color-mix(in srgb, var(--c, var(--body)) 10%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c, var(--body)) 40%, transparent); }
+.jk { color: var(--ink); } .js { color: var(--ok); } .jn { color: var(--body); } .jb { color: var(--path); } .jz, .jp { color: var(--faint); }
+.curl { position: relative; margin: 0 10px 10px; border-radius: 12px; background: var(--term); color: var(--term-ink); border: 1px solid var(--line); }
+.curl-h { display: flex; align-items: center; padding: 8px 8px 0 14px; font: 11px var(--font-mono); color: #80858f; text-transform: uppercase; letter-spacing: .08em; }
+.curl-h button { margin-left: auto; border: 0; border-radius: 8px; background: #25272c; color: #c8ccd2; font: 12px var(--font-sans); padding: 4px 10px; cursor: pointer; text-transform: none; letter-spacing: 0; }
+.curl pre { margin: 0; padding: 8px 14px 14px; max-height: 190px; overflow: auto; font: 12px/1.65 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; letter-spacing: 0; }
+.curl [data-id] { border-radius: 3px; cursor: pointer; transition: background-color .2s, color .2s; }
+.curl [data-id]:hover { color: #fff; }
+.curl [data-id].sel { color: #fff; background: color-mix(in srgb, var(--c, var(--body)) 50%, transparent); }
+.curl .cmd { color: #5aa2ff; }
+
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+@media (max-width: 1000px) {
+  .cols { grid-template-columns: 240px minmax(0, 1fr); }
+  .col.code-col { grid-column: 1 / -1; }
+  html, body { height: auto; }
+  .app { height: auto; }
+  .col { max-height: 640px; }
+}
+@media (max-width: 680px) {
+  .cols { grid-template-columns: minmax(0, 1fr); }
+  .col.out-col { max-height: 360px; }
+  .col.detail { max-height: none; overflow: visible; }
+  .pane { padding: 20px; }
+  .sums { grid-template-columns: minmax(0, 1fr); }
+  .anatomy { display: grid; gap: 10px; }
+  .anatomy .plain { display: none; }
+  .part { display: flex; align-items: center; gap: 10px; }
+  .stem, .part.long .stem { width: 16px; height: 2px; margin: 0; background: linear-gradient(90deg, var(--c), transparent); }
+  .lbl { width: auto; margin: 0; padding: 0; display: block; }
+  .lbl::before { display: none; }
+  .lbl b { margin-right: 6px; }
+  .sums { margin-top: 10px; }
+  .facts span:not(:first-child) { display: none; }
+  .key, .hero-key { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; }
+  .part { flex-wrap: wrap; min-width: 0; }
+  .lbl { white-space: normal; min-width: 0; }
+  .keys .plain { overflow-wrap: anywhere; min-width: 0; }
+}
+</style>
+
+<div class="app" id="app">
+  <header class="top">
+    <span class="brand"><span class="brand-mark"><i style="background:var(--path)"></i><i style="background:var(--query)"></i><i style="background:var(--header)"></i><i style="background:var(--body)"></i></span>http-render</span>
+    <span class="facts" id="facts"></span>
+    <button type="button" class="btn" id="copy">Copy curl</button>
+  </header>
+  <nav class="keys" id="keys" aria-label="The URL, part by part"></nav>
+  <div class="cols">
+    <aside class="col out-col">
+      <label class="search"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg><input id="q" placeholder="Find a field or header" autocomplete="off" spellcheck="false"><kbd>/</kbd></label>
+      <div class="outline" id="outline" role="tree" aria-label="Everything in this endpoint"><span class="cursor" id="cursor"></span></div>
+    </aside>
+    <main class="col detail" id="detail" aria-live="polite"></main>
+    <aside class="col code-col">
+      <div class="tabs" role="tablist"><button type="button" class="tab" role="tab" data-side="req" aria-selected="true"></button><button type="button" class="tab" role="tab" data-side="res" aria-selected="false"></button></div>
+      <div class="code"><div class="json" id="json"></div>
+        <div class="curl"><div class="curl-h">curl<button type="button" id="copy2">Copy</button></div><pre id="curl"></pre></div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+const DOC = __DOC__;
+const req = DOC.request, res = DOC.response;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const G = {
+  get: '<path d="M8 2.5v7.5M4.5 6.5 8 10l3.5-3.5M3 13.5h10"/>', post: '<path d="M8 3v10M3 8h10"/>', put: '<path d="M12.5 6A4.8 4.8 0 0 0 3.6 5M3.5 10a4.8 4.8 0 0 0 8.9 1M3.5 2.5V5H6M12.5 13.5V11H10"/>',
+  patch: '<path d="M3 13l.8-3L10.5 3.3l2.2 2.2L6 12.2z"/>', delete: '<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 8.5h5.6l.7-8.5"/>',
+  path: '<path d="M10.5 2.5 5.5 13.5"/>', query: '<path d="M5.8 6a2.2 2.2 0 1 1 3.2 2c-.7.4-1 .9-1 1.6M8 12.6v.01"/>', header: '<path d="M2.5 3.5h5l6 6-4 4-6-6z"/><circle cx="5.5" cy="6.5" r=".6"/>',
+  body: '<path d="M6 2.5c-1.6 0-2 .8-2 2v1.3c0 1-.6 2.2-1.6 2.2 1 0 1.6 1.2 1.6 2.2v1.3c0 1.2.4 2 2 2M10 2.5c1.6 0 2 .8 2 2v1.3c0 1 .6 2.2 1.6 2.2-1 0-1.6 1.2-1.6 2.2v1.3c0 1.2-.4 2-2 2"/>',
+  res: '<path d="M3.5 8.5l3 3 6-7"/>', err: '<path d="M8 3.5v5.5M8 12.3v.01"/>', host: '<circle cx="8" cy="8" r="5.5"/><path d="M2.5 8h11M8 2.5c2 2.2 2 8.8 0 11M8 2.5c-2 2.2-2 8.8 0 11"/>',
+  lock: '<rect x="3.5" y="7" width="9" height="6.5" rx="1.5"/><path d="M5.5 7V5.5a2.5 2.5 0 0 1 5 0V7"/>', send: '<path d="M2.5 8h9M8.5 4.5 12 8l-3.5 3.5"/>',
+};
+const CHEV = '<svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.75 5 6.25 7.5 3.75"/></svg>';
+const tile = (g, c) => `<i class="tile" style="--c:${c}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${G[g]}</svg></i>`;
+const METHOD = { GET: ["get", "var(--ok)", "reads"], POST: ["post", "var(--body)", "creates"], PUT: ["put", "var(--header)", "replaces"], PATCH: ["patch", "var(--path)", "updates"], DELETE: ["delete", "var(--err)", "removes"] };
+const [mGlyph, mColor, mVerb] = METHOD[req.method] || ["post", "var(--muted)", "sends"];
+const bad = res && res.status >= 400;
+if (bad) document.documentElement.style.setProperty("--res", "var(--err)");
+
+const HEADER_WHY = {
+  "authorization": "Proves who you are. Keep it secret: anyone holding it can act as you.", "content-type": "Tells the server what format the body is in.", "accept": "Says which formats you can read back.",
+  "idempotency-key": "Makes retries safe: sending the same key twice won't create two orders.", "user-agent": "Names the client making the call.", "cookie": "Session data the browser sends along.",
+  "x-api-key": "Your key for this API. Keep it secret.", "location": "Where the newly created thing lives. Fetch it here.", "x-request-id": "Quote this ID when asking the API team about this call.",
+  "ratelimit-remaining": "How many calls you have left before you're slowed down.", "cache-control": "How long this answer can be reused.", "etag": "A fingerprint of this version of the data.",
+  "content-length": "Size of the body in bytes.", "set-cookie": "Asks your browser to store a cookie.", "date": "When the server answered.",
+};
+const RES_WHY = { "content-type": "The format this answer is in." };
+const STATUS = {
+  200: "It worked. Here's what you asked for.", 201: "It worked, and something new was created.", 202: "Accepted. The work will finish later.", 204: "It worked. There's nothing to send back.",
+  301: "It moved for good. Follow the new address.", 302: "It's somewhere else for now.", 304: "Nothing changed since you last asked.", 400: "The request didn't make sense to the server.",
+  401: "You need to sign in, or your token is wrong.", 403: "You're signed in, but not allowed to do this.", 404: "There's nothing at this address.", 409: "It clashes with something that already exists.",
+  422: "The request was understood, but some values are invalid.", 429: "Too many requests. Slow down and retry later.", 500: "Something broke on the server.", 502: "A server in the middle got a bad answer.", 503: "The server is busy or down for now.",
+};
+const FORMAT_WHY = { uuid: "A unique ID, 36 characters with dashes.", email: "An email address.", "date-time": "A timestamp in ISO 8601, like 2026-11-17T14:22:08Z.", date: "A calendar date, YYYY-MM-DD.", uri: "A full web address.", ipv4: "An IPv4 address." };
+
+/* ---------- Model: every item, flat, in outline order ---------- */
+const items = [];
+const byId = new Map();
+function add(item) { items.push(item); byId.set(item.id, item); return item; }
+function typeText(s) {
+  if (!s) return "";
+  let t = s.type === "array" ? (s.items?.type === "object" ? "object" : s.items?.type) + "[]" : s.type;
+  if (s.nullable && s.type !== "null") t += " | null";
+  return t;
+}
+function exText(s) {
+  if (!s || s.example === undefined) return "";
+  if (s.redacted) return "••••";
+  return s.example === null ? "null" : typeof s.example === "string" ? `"${s.example}"` : String(s.example);
+}
+const kids = (s) => (s?.type === "object" ? s.fields : s?.type === "array" && s.items?.type === "object" ? s.items.fields : null);
+function addFields(fields, side, prefix, parent, depth) {
+  for (const f of [...fields].sort((a, b) => Number(b.required) - Number(a.required))) {
+    const path = prefix ? `${prefix}.${f.name}` : f.name;
+    const inner = kids(f.schema);
+    const it = add({ id: `${side}:${path}`, group: side === "req" ? "body" : "rbody", kind: side === "req" ? "body" : "res", side, name: f.name, path, schema: f.schema,
+      required: f.required, type: typeText(f.schema), parent, depth, hasKids: !!inner, color: side === "req" ? "var(--body)" : "var(--res)" });
+    if (inner) addFields(inner, side, f.schema.type === "array" ? path + "[]" : path, it.id, depth + 1);
+  }
+}
+add({ id: "method", group: "address", kind: "method", name: req.method, type: mVerb, color: mColor, depth: 0 });
+add({ id: "host", group: "address", kind: "host", name: new URL(req.baseUrl).host, type: "server", color: "var(--ink-2)", depth: 0 });
+req.pathParams.forEach((p) => add({ id: `path:${p.name}`, group: "address", kind: "path", name: p.name, value: p.value, type: p.format || p.type, color: "var(--path)", depth: 0, required: true }));
+req.query.forEach((q) => add({ id: `query:${q.name}`, group: "address", kind: "query", name: q.name, value: q.value, type: q.type, color: "var(--query)", depth: 0, redacted: q.redacted }));
+req.headers.forEach((h) => add({ id: `header:${h.name}`, group: "headers", kind: "header", name: h.name, value: h.value, type: h.redacted ? "hidden" : "string", color: "var(--header)", depth: 0, redacted: h.redacted }));
+function addBody(body, side) {
+  if (!body) return;
+  const group = side === "req" ? "body" : "rbody", kind = side === "req" ? "body" : "res", color = side === "req" ? "var(--body)" : "var(--res)";
+  const mime = (body.contentType || "").split(";")[0];
+  if (body.schema && kids(body.schema)) return addFields(kids(body.schema), side, body.schema.type === "array" ? "[]" : "", null, 0);
+  if (body.schema) return void add({ id: `${side}:$root`, group, kind, side, name: "body", path: "", schema: body.schema, required: true, type: typeText(body.schema), depth: 0, color });
+  add({ id: `${side}:$blob`, group, kind, side, blob: true, name: body.kind === "text" ? "text body" : "binary body", type: mime || body.kind, depth: 0, color, body });
+}
+addBody(req.body, "req");
+if (res) {
+  add({ id: "status", group: "status", kind: "status", name: `${res.status} ${res.statusText}`, type: res.timeMs != null ? `${res.timeMs} ms` : "", color: "var(--res)", depth: 0 });
+  res.headers.forEach((h) => add({ id: `rheader:${h.name}`, group: "rheaders", kind: "rheader", name: h.name, value: h.value, type: "string", color: "var(--res)", depth: 0 }));
+  addBody(res.body, "res");
+}
+const GROUPS = [
+  ["address", "Address", "addr"], ["headers", "Headers"], ["body", "Request body"], ["status", "Status"], ["rheaders", "Response headers"], ["rbody", "Response body"],
+];
+
+/* ---------- Outline ---------- */
+const closed = new Set();
+function renderOutline() {
+  const out = $("outline");
+  let html = '<span class="cursor" id="cursor"></span>';
+  for (const [g, label] of GROUPS) {
+    const list = items.filter((i) => i.group === g);
+    if (!list.length) continue;
+    html += `<div class="og" data-group="${g}"><div class="og-h">${label}<span class="n">${list.length}</span></div>`;
+    for (const it of list) {
+      const dot = it.kind === "body" || it.kind === "res" ? `<span class="dot${it.required ? "" : " opt"}"></span>` : `<span class="dot"></span>`;
+      const tw = it.hasKids ? `<span class="tw" data-toggle="${esc(it.id)}">${CHEV}</span>` : "";
+      html += `<button type="button" class="row" role="treeitem" data-id="${esc(it.id)}" style="--c:${it.color};--depth:${it.depth}">${tw}${dot}<span class="nm">${esc(it.name)}</span><span class="ty">${esc(it.type || "")}</span></button>`;
+    }
+    html += `</div>`;
+  }
+  html += `<p class="empty-search" id="nores" hidden>Nothing matches. Try a shorter word.</p>`;
+  out.innerHTML = html;
+}
+function ancestors(it) { const a = []; let p = it.parent; while (p) { a.push(p); p = byId.get(p).parent; } return a; }
+function applyVisibility() {
+  const q = $("q").value.trim().toLowerCase();
+  const match = new Set();
+  if (q) for (const it of items) if ((it.name + " " + (it.path || "") + " " + (it.value || "")).toLowerCase().includes(q)) { match.add(it.id); ancestors(it).forEach((a) => match.add(a)); }
+  let shown = 0;
+  document.querySelectorAll(".row").forEach((r) => {
+    const it = byId.get(r.dataset.id);
+    const hiddenByFold = !q && ancestors(it).some((a) => closed.has(a));
+    const hide = (q && !match.has(it.id)) || hiddenByFold;
+    r.hidden = hide;
+    r.classList.toggle("closed", closed.has(it.id) && !q);
+    if (!hide) shown++;
+  });
+  document.querySelectorAll(".og").forEach((g) => (g.hidden = ![...g.querySelectorAll(".row")].some((r) => !r.hidden)));
+  $("nores").hidden = shown > 0;
+  placeCursor(false);
+}
+
+/* ---------- Keys, facts, code ---------- */
+function renderKeys() {
+  const key = (id, g, c, text) => `<button type="button" class="key" style="--c:${c}" data-id="${esc(id)}">${tile(g, c)}${esc(text)}</button>`;
+  let html = key("method", mGlyph, mColor, req.method) + key("host", "host", "var(--ink-2)", new URL(req.baseUrl).host);
+  let run = "";
+  const flush = (tail) => { if (run) html += `<span class="plain${tail ? " tail" : ""}">${esc(run).replace(/\//g, "/<wbr>")}</span>`; run = ""; };
+  for (const seg of req.pathTemplate.split("/").filter(Boolean)) {
+    const m = /^\{(\w+)\}$/.exec(seg);
+    run += "/";
+    if (m) { flush(); html += key(`path:${m[1]}`, "path", "var(--path)", m[1]); } else run += seg;
+  }
+  flush(!req.query.length);
+  req.query.forEach((q, i) => (html += `<span class="plain">${i ? "&amp;" : "?"}</span>` + key(`query:${q.name}`, "query", "var(--query)", q.name)));
+  $("keys").innerHTML = html;
+  $("facts").innerHTML = res ? `<span>${tile(bad ? "err" : "res", "var(--res)")}</span><b>${res.status} ${esc(res.statusText)}</b>${res.timeMs != null ? `<span><b>${res.timeMs}</b> ms</span>` : ""}<span><b>${res.size}</b> B</span>` : "";
+  document.querySelector('[data-side="req"]').innerHTML = `${tile("send", "var(--body)")}Request`;
+  document.querySelector('[data-side="res"]').innerHTML = res ? `${tile(bad ? "err" : "res", "var(--res)")}Response` : "Response";
+}
+
+const hasBody = (s) => !!(s === "req" ? req.body : res?.body);
+let side = hasBody("req") || !hasBody("res") ? "req" : "res";
+function jsonHtml(value, s) {
+  const out = [];
+  const color = s === "req" ? "var(--body)" : "var(--res)";
+  const walk = (v, ind, key, path, comma) => {
+    const pad = "  ".repeat(ind);
+    const id = path ? `${s}:${path}` : "";
+    const attr = id && byId.has(id) ? ` data-id="${esc(id)}"` : "";
+    if (v && typeof v === "object") {
+      const arr = Array.isArray(v), entries = arr ? v.map((x) => [null, x]) : Object.entries(v);
+      out.push(`<div class="jl"${attr} style="--c:${color}">${pad}${key}<span class="jp">${arr ? "[" : "{"}</span></div>`);
+      entries.forEach(([k, x], i) => walk(x, ind + 1, k === null ? "" : `<span class="jk">"${esc(k)}"</span><span class="jp">: </span>`, k === null ? path + "[]" : path ? `${path}.${k}` : k, i < entries.length - 1));
+      out.push(`<div class="jl"${attr} style="--c:${color}">${pad}<span class="jp">${arr ? "]" : "}"}</span>${comma ? "," : ""}</div>`);
+    } else {
+      const cls = typeof v === "string" ? "js" : typeof v === "number" ? "jn" : typeof v === "boolean" ? "jb" : "jz";
+      out.push(`<div class="jl"${attr} style="--c:${color}">${pad}${key}<span class="${cls}">${esc(typeof v === "string" ? JSON.stringify(v) : String(v))}</span>${comma ? "," : ""}</div>`);
+    }
+  };
+  walk(value, 0, "", "", false);
+  return out.join("");
+}
+function renderJson() {
+  const body = side === "req" ? req.body : res?.body;
+  const who = side === "req" ? "request" : "response";
+  let html;
+  if (side === "res" && !res) html = `<p class="empty-search">No response was captured.</p>`;
+  else if (!body) html = `<p class="empty-search">No ${who} body${side === "res" ? ` (${res.status} ${esc(res.statusText)})` : ""}.</p>`;
+  else if (body.example !== undefined) html = jsonHtml(body.example, side);
+  else if (body.kind === "text") html = `<pre class="rawtext" data-id="${side}:$blob">${esc(body.raw || "")}</pre>${body.truncated ? '<p class="blob">Truncated.</p>' : ""}`;
+  else html = `<p class="blob" data-id="${side}:$blob">Binary content · ${body.size} B${body.contentType ? ` · ${esc(body.contentType)}` : ""}${body.raw ? ` · ${esc(body.raw)}` : ""}</p>`;
+  $("json").innerHTML = html;
+  document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.side === side)));
+}
+
+/* curl with a span per selectable part; body JSON keeps a span per field */
+function curlHtml() {
+  const s = (id, text, c) => `<span data-id="${esc(id)}" style="--c:${c}">${text}</span>`;
+  let url = `https://${s("host", esc(new URL(req.baseUrl).host), "var(--ink-2)")}`;
+  for (const seg of req.pathTemplate.split("/").filter(Boolean)) {
+    const m = /^\{(\w+)\}$/.exec(seg);
+    url += "/" + (m ? s(`path:${m[1]}`, esc(req.pathParams.find((p) => p.name === m[1])?.value ?? seg), "var(--path)") : esc(seg));
+  }
+  if (req.query.length) url += "?" + req.query.map((q) => s(`query:${q.name}`, `${esc(q.name)}=${esc(q.value)}`, "var(--query)")).join("&amp;");
+  const lines = [`<span class="cmd">curl</span> -X ${s("method", req.method, mColor)} '${url}'`];
+  for (const h of req.headers) lines.push(`  -H '${s(`header:${h.name}`, `${esc(h.name)}: ${esc(h.value)}`, "var(--header)")}'`);
+  const b = req.body;
+  if (b && (b.kind === "form" || b.kind === "multipart") && b.example && typeof b.example === "object") {
+    const pairs = Object.entries(b.example).map(([k, v]) => s(`req:${k}`, `${esc(k)}=${esc(String(v))}`, "var(--body)"));
+    if (b.kind === "form") lines.push(`  --data-raw '${pairs.join("&amp;")}'`);
+    else pairs.forEach((p) => lines.push(`  -F '${p}'`));
+  } else if (b && b.example === undefined) {
+    if (b.kind === "text") lines.push(`  --data-raw '${s("req:$blob", esc(b.raw || ""), "var(--body)")}'`);
+    else lines.push(`  --data-binary ${s("req:$blob", esc(b.raw || "@file"), "var(--body)")}`);
+  } else if (b?.example !== undefined) {
+    const ser = (v, path) => {
+      if (Array.isArray(v)) return "[" + v.map((x) => ser(x, path + "[]")).join(",") + "]";
+      if (v && typeof v === "object") return "{" + Object.entries(v).map(([k, x]) => {
+        const p = path ? `${path}.${k}` : k;
+        const inner = `${esc(JSON.stringify(k))}:${ser(x, p)}`;
+        return byId.has(`req:${p}`) ? `<span data-id="${esc("req:" + p)}" style="--c:var(--body)">${inner}</span>` : inner;
+      }).join(",") + "}";
+      return esc(JSON.stringify(v));
+    };
+    lines.push(`  --data-raw '${ser(req.body.example, "")}'`);
+  }
+  return lines.join(" \\\n");
+}
+
+/* ---------- Detail ---------- */
+function crumbs(it) {
+  const trail = [];
+  const g = GROUPS.find(([k]) => k === it.group)?.[1];
+  if (g) trail.push(g);
+  ancestors(it).reverse().forEach((a) => trail.push(byId.get(a).name));
+  return `<div class="crumbs">${trail.map((t) => `<b>${esc(t)}</b><span>›</span>`).join("")}<span>${esc(it.name)}</span></div>`;
+}
+function whereChip(it) {
+  const W = {
+    method: ["Method", mGlyph, mColor], host: ["Server", "host", "var(--ink-2)"], path: ["Path parameter · goes in the URL", "path", "var(--path)"], query: ["Query parameter · goes after the ?", "query", "var(--query)"],
+    header: ["Request header", "header", "var(--header)"], body: ["Request body", "body", "var(--body)"], status: ["Response status", bad ? "err" : "res", "var(--res)"],
+    rheader: ["Response header", "header", "var(--res)"], res: ["Response body", "body", "var(--res)"],
+  }[it.kind];
+  return `<span class="where" style="--c:${W[2]}">${tile(W[1], W[2])}${W[0]}</span>`;
+}
+function note(it) {
+  switch (it.kind) {
+    case "method": return `${req.method} ${mVerb} something. ${req.method === "GET" ? "It doesn't change anything on the server." : "It changes data on the server, so be careful sending it twice."}`;
+    case "host": return "The server that answers this request. Every path starts here.";
+    case "path": return `Part of the address itself. Swap {${it.name}} for a real ${it.type === "uuid" ? "ID" : "value"} when you call it.`;
+    case "query": return it.redacted ? "Sent after the ?, but hidden here because it looks like a secret." : "An extra setting sent after the ?. The order of query parameters doesn't matter.";
+    case "header": return HEADER_WHY[it.name.toLowerCase()] || "Sent along with the request.";
+    case "rheader": return RES_WHY[it.name.toLowerCase()] || HEADER_WHY[it.name.toLowerCase()] || "Sent back with the answer.";
+    case "status": return STATUS[res.status] || "The server answered.";
+    default: {
+      if (it.blob) return it.body.kind === "text" ? `The ${it.kind === "body" ? "request" : "response"} body is plain text, not JSON. Its first lines are below.` : "The body is binary data, so only its size and type are shown.";
+      const s = it.schema, bits = [];
+      if (it.hasKids) bits.push(s.type === "array" ? `A list. Each item has ${kids(s).length} fields.` : `A group of ${kids(s).length} fields.`);
+      bits.push(it.kind === "body" ? (it.required ? "You must send it." : "You can leave it out.") : it.required ? "Always comes back." : "Sometimes missing from the answer.");
+      if (s.nullable || s.type === "null") bits.push("It can be null.");
+      if (s.format && FORMAT_WHY[s.format]) bits.push(FORMAT_WHY[s.format]);
+      if (s.redacted) bits.push("Its value is hidden because it looks like a secret.");
+      return bits.join(" ");
+    }
+  }
+}
+function curlSnippet(it) {
+  const tmp = document.createElement("div");
+  tmp.innerHTML = curlHtml();
+  const el = tmp.querySelector(`[data-id="${CSS.escape(it.id)}"]`);
+  if (!el) return "";
+  const text = el.textContent;
+  const short = text.length > 140 ? text.slice(0, 140) + "…" : text;
+  return `<div class="snip" style="--c:${it.color}"><span>In the curl</span><code>${it.kind === "header" ? "-H '" : ""}<mark>${esc(short)}</mark>${it.kind === "header" ? "'" : ""}</code></div>`;
+}
+function detailItem(it) {
+  const facts = [];
+  const add = (k, v, cls = "", wide = false) => facts.push(`<div class="fact${wide ? " wide" : ""}"><span>${k}</span><b class="${cls}">${v}</b></div>`);
+  if (it.kind === "path" || it.kind === "query" || it.kind === "header" || it.kind === "rheader") {
+    add("Type", esc(it.type));
+    add("Required", it.kind === "query" ? "Optional" : "Yes", it.kind === "query" ? "no" : "yes");
+    add(it.kind === "path" || it.kind === "query" ? "Example" : "Value", esc(it.value || "—"), "", true);
+  } else if (it.blob) {
+    add("Type", esc(it.type));
+    add("Size", `${it.body.size} B`);
+  } else if (it.kind === "body" || it.kind === "res") {
+    add("Type", esc(it.type));
+    add(it.kind === "body" ? "Required" : "Always present", it.required ? "Yes" : "No", it.required ? "yes" : "no");
+    if (it.schema.format) add("Format", esc(it.schema.format));
+    if (!it.hasKids) add("Example", esc(exText(it.schema) || "—"), "", !it.schema.format);
+    if (it.path) add("Path", esc(it.path), "", true);
+  } else if (it.kind === "status") {
+    add("Code", res.status);
+    add("Time", res.timeMs != null ? `${res.timeMs} ms` : "n/a");
+    add("Size", `${res.size} B`);
+    add("Type", esc((res.body?.contentType || "none").split(";")[0]));
+  } else if (it.kind === "method") {
+    add("Changes data", req.method === "GET" || req.method === "HEAD" ? "No" : "Yes", req.method === "GET" ? "no" : "yes");
+    add("Has a body", req.body ? "Yes" : "No");
+  } else if (it.kind === "host") {
+    add("Base URL", esc(req.baseUrl), "", true);
+  }
+  const children = it.hasKids ? items.filter((x) => x.parent === it.id) : [];
+  const kidsHtml = children.length ? `<div class="snip"><span>Inside</span><div class="kids">${children.map((c) => `<button type="button" class="key" data-id="${esc(c.id)}" style="--c:${c.color}">${esc(c.name)}</button>`).join("")}</div></div>` : "";
+  const g = { method: mGlyph, host: "host", path: "path", query: "query", header: it.redacted ? "lock" : "header", rheader: "header", body: "body", res: "body", status: bad ? "err" : "res" }[it.kind];
+  const preview = it.blob && it.body.raw ? `<div class="snip" style="--c:${it.color}"><span>Preview</span><code>${esc(it.body.raw.slice(0, 600))}${it.body.raw.length > 600 ? "…" : ""}</code></div>` : "";
+  return `<div class="pane enter stagger">${crumbs(it)}<button type="button" class="key hero-key" style="--c:${it.color};--i:0" data-noop>${tile(g, it.color)}${esc(it.name)}</button>${whereChip(it)}<p class="note">${esc(note(it))}</p><div class="factgrid">${facts.join("")}</div>${kidsHtml}${preview}${it.blob ? "" : curlSnippet(it)}</div>`;
+}
+function overview() {
+  const host = new URL(req.baseUrl).host;
+  const parts = [{ id: "method", g: mGlyph, c: mColor, t: req.method, l: "method", n: mVerb }, { id: "host", g: "host", c: "var(--ink-2)", t: host, l: "server", n: "where it lives" }];
+  for (const seg of req.pathTemplate.split("/").filter(Boolean)) {
+    parts.push({ plain: "/" });
+    const m = /^\{(\w+)\}$/.exec(seg);
+    if (!m) { parts.push({ plain: seg }); continue; }
+    const p = req.pathParams.find((x) => x.name === m[1]);
+    parts.push({ id: `path:${m[1]}`, g: "path", c: "var(--path)", t: m[1], l: "path param", n: `you fill it in · ${p?.format || p?.type}` });
+  }
+  req.query.forEach((q, i) => { parts.push({ plain: i ? "&" : "?" }); parts.push({ id: `query:${q.name}`, g: "query", c: "var(--query)", t: q.name, l: "query", n: q.type }); });
+  const merged = [];
+  for (const p of parts) {
+    const last = merged[merged.length - 1];
+    if (p.plain && last?.plain !== undefined) last.plain += p.plain;
+    else merged.push(p.plain ? { plain: p.plain } : p);
+  }
+  if (merged[merged.length - 1]?.plain !== undefined) merged[merged.length - 1].tail = true;
+  let n = 0;
+  const anatomy = merged.map((p) => {
+    if (p.plain !== undefined) return `<span class="plain${p.tail ? " tail" : ""}">${esc(p.plain).replace(/(\/|\?|&amp;)/g, "$1<wbr>")}</span>`;
+    const i = n++;
+    return `<span class="part${i % 2 ? " long" : ""}" style="--c:${p.c};--i:${i}"><button type="button" class="key" style="--c:${p.c}" data-id="${esc(p.id)}">${tile(p.g, p.c)}${esc(p.t)}</button><span class="stem"></span><span class="lbl"><b>${p.l}</b>${esc(p.n)}</span></span>`;
+  }).join("");
+  const count = (g) => items.filter((i) => i.group === g).length;
+  const row = (g, c, label, num, id) => `<li>${tile(g, c)}<button type="button" class="link" data-id="${esc(id)}" style="all:unset;cursor:pointer">${label}</button><b>${num}</b></li>`;
+  const first = (g) => items.find((i) => i.group === g)?.id || "";
+  const sendList = [
+    req.pathParams.length && row("path", "var(--path)", "Path parameters", req.pathParams.length, first("address") && `path:${req.pathParams[0].name}`),
+    req.query.length && row("query", "var(--query)", "Query parameters", req.query.length, `query:${req.query[0].name}`),
+    req.headers.length && row("header", "var(--header)", "Headers", req.headers.length, first("headers")),
+    req.body && !kids(req.body.schema) ? row("body", "var(--body)", `${req.body.kind} body`, `${req.body.size} B`, first("body")) : count("body") && row("body", "var(--body)", "Body fields", count("body"), first("body")),
+  ].filter(Boolean).join("");
+  const resCard = res
+    ? `<div class="sum res" style="--i:${n + 2}"><h3>You get back</h3><span class="big">${res.status}</span><span style="color:var(--muted)">${esc(res.statusText)}${res.timeMs != null ? ` · ${res.timeMs} ms` : ""} · ${res.size} B</span><ul>${count("rheaders") ? row("header", "var(--res)", "Headers", count("rheaders"), first("rheaders")) : ""}${res.body && !kids(res.body.schema) ? row("body", "var(--res)", `${res.body.kind} body`, `${res.body.size} B`, first("rbody")) : count("rbody") ? row("body", "var(--res)", "Body fields", count("rbody"), first("rbody")) : ""}</ul></div>`
+    : `<div class="sum"><h3>You get back</h3><span style="color:var(--muted)">No response captured.</span></div>`;
+  return `<div class="pane stagger"><h1 class="ov-h" style="--i:0">${esc(req.method)} ${esc(req.pathTemplate)}</h1><p class="ov-p" style="--i:1">Everything this endpoint takes and returns. Pick anything on the left, in the URL, or in the JSON to see what it is.</p>
+    <div class="anatomy">${anatomy}</div>
+    <div class="sums"><div class="sum" style="--i:${n + 1}"><h3>You send</h3><ul>${sendList || "<li>Nothing</li>"}</ul></div>${resCard}</div>
+    <p class="tip" style="--i:${n + 3}"><kbd>↑</kbd> <kbd>↓</kbd> move through the list · <kbd>/</kbd> search · <kbd>esc</kbd> back to this overview</p></div>`;
+}
+
+/* ---------- Selection ---------- */
+let selected = null;
+function select(id, { scroll = true } = {}) {
+  const it = id ? byId.get(id) : null;
+  if (it && it.side && it.side !== side) { side = it.side; renderJson(); }
+  if ((it?.kind === "status" || it?.kind === "rheader") && side !== "res") { side = "res"; renderJson(); }
+  selected = it ? it.id : null;
+  if (it) ancestors(it).forEach((a) => closed.delete(a));
+  applyVisibility();
+
+  const pane = $("detail");
+  const old = pane.firstElementChild;
+  pane.innerHTML = it ? detailItem(it) : overview();
+  if (!reduce && old) pane.firstElementChild.animate([{ opacity: 0, transform: "translateY(10px) scale(.985)" }, { opacity: 1, transform: "none" }], { duration: 380, easing: "cubic-bezier(.34,1.3,.64,1)" });
+  pane.scrollTop = 0;
+
+  document.querySelectorAll(".sel").forEach((e) => e.classList.remove("sel"));
+  if (it) {
+    document.querySelectorAll(`[data-id="${CSS.escape(it.id)}"]`).forEach((e) => { if (!e.closest(".pane")) e.classList.add("sel"); });
+    const line = document.querySelector(`.jl[data-id="${CSS.escape(it.id)}"]`);
+    if (line && scroll) line.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
+    const c = document.querySelector(`#curl [data-id="${CSS.escape(it.id)}"]`);
+    if (c && scroll) c.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+  }
+  placeCursor(scroll);
+}
+function placeCursor(scroll) {
+  const cur = $("cursor");
+  const row = selected && document.querySelector(`.row[data-id="${CSS.escape(selected)}"]`);
+  if (!row || row.hidden) { cur.style.opacity = 0; return; }
+  cur.style.top = row.offsetTop + "px";
+  cur.style.height = row.offsetHeight + "px";
+  cur.style.setProperty("--c", byId.get(selected).color);
+  cur.style.opacity = 1;
+  if (scroll) row.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+}
+
+/* ---------- Events ---------- */
+document.addEventListener("click", (e) => {
+  const tog = e.target.closest("[data-toggle]");
+  if (tog) {
+    e.stopPropagation();
+    const id = tog.dataset.toggle;
+    closed.has(id) ? closed.delete(id) : closed.add(id);
+    applyVisibility();
+    return;
+  }
+  const tab = e.target.closest(".tab");
+  if (tab) { side = tab.dataset.side; renderJson(); select(selected, { scroll: false }); return; }
+  const el = e.target.closest("[data-id]");
+  if (el && !el.hasAttribute("data-noop")) select(el.dataset.id);
+});
+$("q").addEventListener("input", () => {
+  applyVisibility();
+  const firstMatch = [...document.querySelectorAll(".row")].find((r) => !r.hidden && $("q").value && r.querySelector(".nm").textContent.toLowerCase().includes($("q").value.toLowerCase()));
+  if (firstMatch) select(firstMatch.dataset.id, { scroll: true });
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && document.activeElement !== $("q")) { e.preventDefault(); $("q").focus(); return; }
+  if (e.key === "Escape") { if ($("q").value) { $("q").value = ""; applyVisibility(); } else select(null); $("q").blur(); return; }
+  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+  if (document.activeElement && document.activeElement.matches("input") && document.activeElement !== $("q")) return;
+  e.preventDefault();
+  const rows = [...document.querySelectorAll(".row")].filter((r) => !r.hidden);
+  const i = rows.findIndex((r) => r.dataset.id === selected);
+  const next = rows[e.key === "ArrowDown" ? Math.min(rows.length - 1, i + 1) : Math.max(0, i === -1 ? 0 : i - 1)];
+  if (next) select(next.dataset.id);
+});
+async function copyCurl(btn, label) {
+  const text = $("curl").textContent;
+  try { await navigator.clipboard.writeText(text); btn.textContent = "Copied"; btn.classList.add("done"); }
+  catch { btn.textContent = "Copy blocked"; }
+  setTimeout(() => { btn.textContent = label; btn.classList.remove("done"); }, 1400);
+}
+$("copy").addEventListener("click", (e) => copyCurl(e.currentTarget, "Copy curl"));
+$("copy2").addEventListener("click", (e) => copyCurl(e.currentTarget, "Copy"));
+addEventListener("resize", () => placeCursor(false));
+
+/* ---------- Start ---------- */
+renderKeys();
+renderOutline();
+renderJson();
+$("curl").innerHTML = curlHtml();
+select(null);
+</script>
