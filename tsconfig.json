@@ -28,6 +28,7 @@
     "packages/*/test",
     "apps/*/src",
     "apps/web/api",
-    "apps/web/vite.config.ts"
+    "apps/web/test",
+    "apps/web/*.ts"
   ]
 }
