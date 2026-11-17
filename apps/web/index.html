@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>http-render</title>
+<meta name="description" content="Paste a curl command or URL and get one clean page of the endpoint: what you send, what comes back.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='7' height='7' rx='2' fill='%238b4fe0'/%3E%3Crect x='9' width='7' height='7' rx='2' fill='%230e9384'/%3E%3Crect y='9' width='7' height='7' rx='2' fill='%23e2620f'/%3E%3Crect x='9' y='9' width='7' height='7' rx='2' fill='%231f7ae0'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="/"><span class="brand-mark"><i></i><i></i><i></i><i></i></span>http-render</a>
+  <span class="sp"></span>
+  <a class="gh" href="https://github.com/InsaneArts/http-render" target="_blank" rel="noopener">GitHub ↗</a>
+</header>
+
+<main class="site">
+  <section class="hero">
+    <h1>Every endpoint,<br><span>taken apart.</span></h1>
+    <p>Paste a curl command or a URL. See what goes in the path, the query, the headers and the body, and exactly what comes back. Then keep it as one page.</p>
+  </section>
+
+  <section class="specimen" aria-label="Anatomy of the endpoint you typed">
+    <div class="exploded" id="exploded"></div>
+  </section>
+
+  <section class="composer" id="try">
+    <div class="bar" id="bar">
+      <label class="sr" for="input">curl command or URL</label>
+      <textarea id="input" spellcheck="false" autocomplete="off" rows="3" placeholder="curl -X POST https://api.example.com/v1/orders -H 'Authorization: Bearer …' --json '{…}'"></textarea>
+      <div class="bar-foot">
+        <label class="switch"><input type="checkbox" id="send"><span class="track"><span class="thumb"></span></span>Send for real</label>
+        <label class="switch"><input type="checkbox" id="redact" checked><span class="track"><span class="thumb"></span></span>Hide secrets</label>
+        <button type="button" class="link-btn" id="toggle-response" aria-expanded="false">+ Paste a response</button>
+        <span class="sp"></span>
+        <button type="button" class="go" id="render"><span>Render</span><kbd>⌘ Enter</kbd></button>
+      </div>
+      <div class="response-box" id="response-box" hidden>
+        <label for="res-status">Status</label>
+        <input id="res-status" inputmode="numeric" value="200" maxlength="3">
+        <label class="sr" for="res-body">Response body</label>
+        <textarea id="res-body" spellcheck="false" rows="4" placeholder='{"id": 1, "name": "…"}'></textarea>
+      </div>
+      <div class="confirm" id="confirm" hidden>
+        <span id="confirm-text"></span>
+        <button type="button" class="go small" id="confirm-send">Send it</button>
+        <button type="button" class="link-btn" id="confirm-doc">Document only</button>
+      </div>
+      <p class="error" id="error" role="alert" hidden></p>
+    </div>
+    <div class="picks">
+      <span class="label">Try</span><div class="chips" id="examples"></div>
+      <span class="label" id="recent-label" hidden>Recent</span><div class="chips" id="recent"></div>
+    </div>
+  </section>
+
+  <section class="window" id="stage">
+    <div class="toolbar">
+      <div class="styles" id="styles" role="group" aria-label="Style"></div>
+      <button type="button" class="tool" id="open-customize" aria-expanded="false">Customize</button>
+      <span class="sp"></span>
+      <button type="button" class="tool" id="copy-cli">Copy CLI command</button>
+      <button type="button" class="tool" id="dl-json">JSON</button>
+      <button type="button" class="tool primary" id="dl-html">Download HTML</button>
+      <button type="button" class="tool icon" id="open-full" aria-label="Open full screen">↗</button>
+    </div>
+    <div class="customize" id="customize" hidden></div>
+    <div class="frame" id="frame"><iframe id="preview" title="Rendered document" sandbox="allow-scripts allow-popups" allow="clipboard-write"></iframe></div>
+  </section>
+
+  <section class="cli" id="cli">
+    <div class="cli-copy">
+      <h2>Same page, from your terminal.</h2>
+      <p>Copy any request from your browser's network tab as cURL and pipe it in. You get the same file and the same styles, and nothing leaves your machine unless you send it.</p>
+    </div>
+    <div class="term">
+      <div class="term-bar"><i></i><i></i><i></i><span>~/api</span><button type="button" class="term-copy" id="copy-install">Copy</button></div>
+      <pre><span class="p">$</span> <span class="c" id="install-cmd">pbpaste | npx http-render --open</span>
+<span class="ok">✓</span> POST /v1/users/{userId}/orders · 201 Created · 84 ms
+  → post-v1-users-userid-orders.html
+
+<span class="p">$</span> <span class="c">npx http-render https://api.github.com/zen -t graphite</span>
+<span class="ok">✓</span> GET /zen · 200 OK · 41 ms → get-zen.html</pre>
+    </div>
+  </section>
+
+  <p class="privacy">Document-only renders never leave your browser. <b>Send for real</b> goes through a small relay that only reaches public addresses, stops after 15 seconds and keeps the first 1 MB. Nothing is stored.</p>
+  <footer class="foot"><span>http-render · MIT</span><span>For people who read APIs.</span></footer>
+</main>
+
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>
