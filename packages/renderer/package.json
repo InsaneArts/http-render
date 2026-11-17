@@ -1,0 +1,17 @@
+{
+  "name": "@http-render/renderer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@http-render/core": "workspace:*",
+    "zod": "^4.0.0"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "gen": "node scripts/gen-templates.mjs"
+  }
+}
